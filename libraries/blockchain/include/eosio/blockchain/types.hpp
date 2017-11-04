@@ -90,9 +90,29 @@ namespace eosio { namespace blockchain {
 
 
    typedef fc::ecc::compact_signature     signature_type;
-   typedef eosio::blockchain::public_key  public_key_type;
    typedef fc::ecc::private_key           private_key_type;
    typedef fc::sha256                     digest_type;
+
+
+   /**
+    * Standard public key composed of:
+    *   secp256k1 elliptic curve public key
+    *
+    */
+   typedef crypto::composite_public_key<fc::ecc::public_key> public_key_type;
+
+   /**
+    * specialize the public_key_type_info struct so that helper
+    * functions can use defaults
+    */
+   template<>
+   struct crypto::public_key_type_info<fc::ecc::public_key> {
+      typedef fc::ecc::public_key_data     data_type;
+      static const bool                   default_type = true;
+
+      static constexpr const char* prefix() { return "K1"; }
+   };
+
 
 
    typedef map<account_name, pair< account_name,public_key_type> > producer_changes_type;

@@ -5,17 +5,10 @@
 #include <fc/io/raw.hpp>
 
 
+/*
 namespace eosio { namespace blockchain {
 
-    public_key::public_key():key_data(){};
-
-    public_key::public_key(const fc::ecc::public_key_data& data)
-        :key_data( data ) {};
-
-    public_key::public_key(const fc::ecc::public_key& pubkey)
-        :key_data( pubkey ) {};
-
-    public_key::public_key(const std::string& base58str)
+    composite_public_key::public_key(const std::string& base58str)
     {
       // TODO:  Refactor syntactic checks into static is_valid()
       //        to make public_key API more similar to address API
@@ -90,3 +83,4 @@ namespace fc
     }
     
 } // fc
+*/
