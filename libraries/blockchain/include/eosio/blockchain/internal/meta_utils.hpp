@@ -60,53 +60,55 @@ namespace eosio { namespace blockchain { namespace internal {
    template<typename ...Entries>
    struct meta_array;
 
-   namespace impl {
-      template<typename Needle, typename ...Haystack>
-      struct contains;
+   template<typename Needle, typename ...Haystack>
+   struct meta_array_contains;
 
-      template<typename Needle, typename First, typename ...Rem>
-      struct contains<Needle, First, Rem...> {
-         static const bool value = std::is_same<Needle, First>::value || contains<Needle, Rem...>::value;
-      };
+   template<typename Needle, typename First, typename ...Rem>
+   struct meta_array_contains<Needle, First, Rem...> {
+      static const bool value = std::is_same<Needle, First>::value || meta_array_contains<Needle, Rem...>::value;
+   };
 
-      template<typename Needle>
-      struct contains<Needle> {
-         static const bool value = false;
-      };
+   template<typename Needle>
+   struct meta_array_contains<Needle> {
+      static const bool value = false;
+   };
 
-      template<template<typename> class Mapper, typename ...Entries>
-      struct meta_array_map;
+   template<typename Needle, typename ...Haystack>
+   constexpr bool meta_array_contains_v = meta_array_contains<Needle, Haystack...>::value;
 
-      template<template<typename> class Mapper, typename First, typename ...Rem>
-      struct meta_array_map<Mapper, First, Rem...> {
-         using type = typename meta_array_map<Mapper, Rem...>::type::template with<Mapper<First>::type>;
-      };
+   template<template<typename> class Mapper, typename ...Entries>
+   struct meta_array_map;
 
-      template<template<typename> class Mapper, typename First>
-      struct meta_array_map<Mapper, First> {
-         using type = meta_array<typename Mapper<First>::type>;
-      };
+   template<template<typename> class Mapper, typename First, typename ...Rem>
+   struct meta_array_map<Mapper, First, Rem...> {
+      using type = typename meta_array_map<Mapper, Rem...>::type::template with<Mapper<First>::type>;
+   };
 
-      template<template<typename> class Mapper>
-      struct meta_array_map<Mapper> {
-         using type = meta_array<>;
-      };
+   template<template<typename> class Mapper, typename First>
+   struct meta_array_map<Mapper, First> {
+      using type = meta_array<typename Mapper<First>::type>;
+   };
 
-   }
+   template<template<typename> class Mapper>
+   struct meta_array_map<Mapper> {
+      using type = meta_array<>;
+   };
+
+   template<template<typename> class Mapper, typename ...Entries>
+   using meta_array_map_t = typename meta_array_map<Mapper, Entries...>::type;
+
 
    template<typename ...Entries>
    struct meta_array {
 
       template<typename Needle>
-      static constexpr bool contains() {
-         return impl::contains<Needle, Entries...>::value;
-      }
+      static constexpr bool contains = meta_array_contains_v<Needle, Entries...>;
 
       template<typename Entry>
       using with = meta_array<Entry, Entries...>;
 
       template<template<typename> class Mapper>
-      using map = typename impl::meta_array_map<Mapper, Entries...>::type;
+      using map = meta_array_map_t<Mapper, Entries...>;
    };
 
 } } };
