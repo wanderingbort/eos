@@ -605,6 +605,7 @@ void chain_controller::__apply_block(const signed_block& next_block)
    /// cache the input tranasction ids so that they can be looked up when executing the
    /// summary
    vector<transaction_metadata> input_metas;
+   input_metas.reserve(next_block.input_transactions.size());
    map<transaction_id_type,size_t> trx_index;
    for( const auto& t : next_block.input_transactions ) {
       input_metas.emplace_back(t, chain_id_type(), next_block.timestamp);
