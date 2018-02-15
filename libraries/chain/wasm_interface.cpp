@@ -296,6 +296,8 @@ namespace eosio { namespace chain {
 
    void wasm_interface::apply( wasm_cache::entry& code, apply_context& context, vm_type vm ) {
       auto context_guard = scoped_context(my->current_context, code, context, vm);
+      auto begin = std::chrono::high_resolution_clock::now();
+
       switch (vm) {
          case vm_type::wavm:
             code.wavm.call_apply(context);
@@ -304,6 +306,10 @@ namespace eosio { namespace chain {
             code.binaryen.call_apply(context);
             break;
       }
+
+      auto end = std::chrono::high_resolution_clock::now();
+      std::cout << "apply took: " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "us.\n";
+
    }
 
    void wasm_interface::error( wasm_cache::entry& code, apply_context& context, vm_type vm ) {

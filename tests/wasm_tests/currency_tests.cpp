@@ -13,6 +13,8 @@
 
 #include <fc/variant_object.hpp>
 #include <fc/io/json.hpp>
+#include <tuple>
+#include <chrono>
 
 using namespace eosio;
 using namespace eosio::chain;
@@ -22,21 +24,28 @@ using namespace fc;
 
 class currency_tester : public tester {
    public:
+      auto push_actions(std::initializer_list<account_name> signers, std::initializer_list<std::tuple<action_name, const variant_object &, std::initializer_list<permission_level>>> actions ) {
+         signed_transaction trx;
+
+         for(const auto& a: actions) {
+            string action_type_name = abi_ser.get_action_type(std::get<0>(a));
+
+            action act;
+            act.account = N(currency);
+            act.name = std::get<0>(a);
+            act.authorization = vector<permission_level>(std::get<2>(a));
+            act.data = abi_ser.variant_to_binary(action_type_name, std::get<1>(a));
+            trx.actions.emplace_back(std::move(act));
+         }
+
+         set_tapos(trx);
+         for (const auto& s: signers)
+            trx.sign(get_private_key(s, "active"), chain_id_type());
+         return push_transaction(trx);
+      }
 
       auto push_action(const account_name& signer, const action_name &name, const variant_object &data ) {
-         string action_type_name = abi_ser.get_action_type(name);
-
-         action act;
-         act.account = N(currency);
-         act.name = name;
-         act.authorization = vector<permission_level>{{signer, config::active_name}};
-         act.data = abi_ser.variant_to_binary(action_type_name, data);
-
-         signed_transaction trx;
-         trx.actions.emplace_back(std::move(act));
-         set_tapos(trx);
-         trx.sign(get_private_key(signer, "active"), chain_id_type());
-         return push_transaction(trx);
+         return push_actions({signer}, {{name, data, {{signer, config::active_name}}}});
       }
 
       asset get_balance(const account_name& account) const {
@@ -54,11 +63,18 @@ class currency_tester : public tester {
                  ("to",       "currency")
                  ("quantity", "1000000.0000 CUR")
          );
-         produce_block();
+         genesis_block = produce_block();
+      }
+
+      currency_tester( const currency_tester& master)
+      :tester(chain_controller::runtime_limits(), false),abi_ser(json::from_string(currency_abi).as<abi_def>()),genesis_block(master.genesis_block)
+      {
+         control->push_block(genesis_block);
       }
 
 
    abi_serializer abi_ser;
+   signed_block genesis_block;
 };
 
 BOOST_AUTO_TEST_SUITE(currency_tests)
@@ -424,6 +440,101 @@ BOOST_FIXTURE_TEST_CASE( test_deferred_failure, currency_tester ) try {
    BOOST_REQUIRE_EQUAL(get_balance( N(bob)),   asset::from_string("0.0000 CUR"));
 
 } FC_LOG_AND_RETHROW() /// test_currency
+
+BOOST_AUTO_TEST_CASE( test_profile_transfer ) try {
+   currency_tester a, b(a);
+   a.create_accounts( {N(alice)} );
+   b.control->push_block(a.produce_block());
+
+
+   // make a transfer from the contract to a user
+   {
+      auto c_to_a = mutable_variant_object()
+              ("from", "currency")
+              ("to",   "alice")
+              ("quantity", "100.0000 CUR")
+              ("memo", "to Alice");
+
+      auto a_to_c = mutable_variant_object()
+              ("from", "alice")
+              ("to",   "currency")
+              ("quantity", "100.0000 CUR")
+              ("memo", "to Currency");
+
+      auto trace = a.push_actions({N(currency),N(alice)}, {{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           },{
+              N(transfer), c_to_a, {{N(currency), config::active_name}}
+           },{
+              N(transfer), a_to_c, {{N(alice), config::active_name}}
+           }}
+      );
+
+      auto block = a.produce_block();
+      BOOST_REQUIRE_EQUAL(true, a.chain_has_transaction(trace.id));
+
+      auto begin = std::chrono::high_resolution_clock::now();
+      b.control->push_block(block);
+      auto end = std::chrono::high_resolution_clock::now();
+      std::cout << "push block took: " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "us.\n";
+
+
+   }
+} FC_LOG_AND_RETHROW() /// test_transfer
 
 
 BOOST_AUTO_TEST_SUITE_END()

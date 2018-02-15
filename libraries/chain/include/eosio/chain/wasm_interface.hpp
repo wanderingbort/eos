@@ -110,11 +110,11 @@ namespace eosio { namespace chain {
           * @param context - the interface by which the contract can interact
           * with blockchain state.
           */
-         void apply( wasm_cache::entry& code, apply_context& context, vm_type vm = vm_type::wavm );
+         void apply( wasm_cache::entry& code, apply_context& context, vm_type vm = vm_type::binaryen );
 
          /**
           */
-         void error( wasm_cache::entry& code, apply_context& context, vm_type vm = vm_type::wavm  );
+         void error( wasm_cache::entry& code, apply_context& context, vm_type vm = vm_type::binaryen  );
 
       private:
          wasm_interface();
