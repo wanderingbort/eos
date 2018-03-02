@@ -50,10 +50,10 @@ target_link_libraries( eosiod
         PRIVATE http_plugin -Wl,${whole_archive_flag} faucet_testnet_plugin -Wl,${no_whole_archive_flag}
         PRIVATE eosio_chain fc ${CMAKE_DL_LIBS} ${PLATFORM_SPECIFIC_LIBS} )
 
-if(BUILD_MONGO_DB_PLUGIN)
+foreach(external_plugin ${EOSIOD_EXTERNAL_PLUGIN_LIBS})
   target_link_libraries( eosiod
-    PRIVATE -Wl,${whole_archive_flag} mongo_db_plugin -Wl,${no_whole_archive_flag} )
-endif()
+    PRIVATE -Wl,${whole_archive_flag} ${external_plugin} -Wl,${no_whole_archive_flag} )
+endforeach()
 
 install( TARGETS
    eosiod
