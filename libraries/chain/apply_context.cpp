@@ -18,16 +18,17 @@ void apply_context::exec_one()
       auto native = mutable_controller.find_apply_handler(receiver, act.account, act.name);
       if (native) {
          (*native)(*this);
-      } else {
-         if (a.code.size() > 0) {
-            // get code from cache
-            auto code = mutable_controller.get_wasm_cache().checkout_scoped(a.code_version, a.code.data(),
-                                                                            a.code.size());
-            // get wasm_interface
-            auto &wasm = wasm_interface::get();
-            wasm.apply(code, *this);
       }
+
+      if (a.code.size() > 0) {
+         // get code from cache
+         auto code = mutable_controller.get_wasm_cache().checkout_scoped(a.code_version, a.code.data(),
+                                                                         a.code.size());
+         // get wasm_interface
+         auto &wasm = wasm_interface::get();
+         wasm.apply(code, *this);
       }
+
    } FC_CAPTURE_AND_RETHROW((_pending_console_output.str()));
 
    if (!_write_scopes.empty()) {
@@ -257,6 +258,10 @@ vector<account_name> apply_context::get_active_producers() const {
 }
 
 void apply_context::checktime(uint32_t instruction_count) const {
+   if (privileged) {
+      return;
+   }
+
    if (trx_meta.processing_deadline && fc::time_point::now() > (*trx_meta.processing_deadline)) {
       throw checktime_exceeded();
    }

@@ -157,6 +157,50 @@ namespace eosiosystem {
             EOSLIB_SERIALIZE( nonce, (value) )
          };
 
+         ACTION( SystemAccount, newaccount ) {
+            EOSLIB_SERIALIZE( newaccount, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, updateauth ) {
+            EOSLIB_SERIALIZE( updateauth, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, deleteauth ) {
+            EOSLIB_SERIALIZE( deleteauth, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, linkauth ) {
+            EOSLIB_SERIALIZE( linkauth, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, unlinkauth ) {
+            EOSLIB_SERIALIZE( unlinkauth, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, postrecovery ) {
+            EOSLIB_SERIALIZE( postrecovery, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, passrecovery ) {
+            EOSLIB_SERIALIZE( passrecovery, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, vetorecovery ) {
+            EOSLIB_SERIALIZE( vetorecovery, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, setcode ) {
+            EOSLIB_SERIALIZE( setcode, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, setabi ) {
+            EOSLIB_SERIALIZE( setabi, BOOST_PP_SEQ_NIL )
+         };
+
+         ACTION( SystemAccount, onerror ) {
+            EOSLIB_SERIALIZE( onerror, BOOST_PP_SEQ_NIL )
+         };
+
          /// new id options:
          //  1. hash + collision
          //  2. incrementing count  (key=> tablename
@@ -388,13 +432,51 @@ namespace eosiosystem {
          static void on( const finishundel& ) {            
          }
 
+         static void on( const newaccount& ) {
+         }
+
+         static void on( const updateauth& ) {
+         }
+
+         static void on( const deleteauth& ) {
+         }
+
+         static void on( const linkauth& ) {
+         }
+
+         static void on( const unlinkauth& ) {
+         }
+
+         static void on( const postrecovery& ) {
+         }
+
+         static void on( const passrecovery& ) {
+         }
+
+         static void on( const vetorecovery& ) {
+         }
+
+         static void on( const setcode& ) {
+         }
+
+         static void on( const setabi& ) {
+         }
+
+         static void on( const onerror& ) {
+         }
+
          static void apply( account_name code, action_name act ) {
 
             if( !eosio::dispatch<contract,
                                  regproducer, regproxy,
                                  delegatebw, undelegatebw,
                                  finishundel, voteproducer, stakevote,
-                                 nonce>( code, act) ) {
+                                 nonce,
+                                 newaccount,
+                                 updateauth,deleteauth,linkauth,unlinkauth,
+                                 postrecovery, passrecovery, vetorecovery,
+                                 setcode, setabi,
+                                 onerror>( code, act) ) {
                if ( !eosio::dispatch<currency, typename currency::transfer, typename currency::issue>( code, act ) ) {
                   eosio::print("Unexpected action: ", eosio::name(act), "\n");
                   eosio_assert( false, "received unexpected action");
