@@ -17,6 +17,7 @@
 #include <eosio/net_v2/protocol.hpp>
 
 namespace bmi = boost::multi_index;
+using boost::multi_index_container;
 using bmi::indexed_by;
 using bmi::ordered_non_unique;
 using bmi::hashed_unique;
@@ -63,7 +64,6 @@ namespace eosio { namespace net_v2 {
    struct block_cache_object {
       block_id_type    id;
       block_id_type    prev;
-      fc::time_point   expiration;
       signed_block_ptr blk;
       bytes_ptr        raw;
       dynamic_bitset   session_acks;
@@ -76,10 +76,6 @@ namespace eosio { namespace net_v2 {
             tag<by_id>,
             member< block_cache_object, block_id_type, &block_cache_object::id>,
             std::hash<block_id_type>
-         >,
-         ordered_non_unique<
-            tag< by_expiration >,
-            member< transaction_cache_object, fc::time_point,&transaction_cache_object::expiration >
          >
       >
    >;
@@ -90,12 +86,18 @@ namespace eosio { namespace net_v2 {
 
 
    struct chain_info {
-      uint32_t last_irreversible_block_number = 0;
+      uint32_t      last_irreversible_block_number = 0;
       block_id_type head_block_id;
+      chain_id_type chain_id;
    };
 
    struct shared_state {
       chain_info local_chain;
+
+      string      public_endpoint;
+      string      agent_name;
+      fc::sha256  node_id;
+
 
       transaction_cache txn_cache;
       block_cache       blk_cache;
@@ -207,8 +209,19 @@ namespace eosio { namespace net_v2 {
 
       struct connected_state;
       struct handshaking_state {
+         struct hello_sent_event{};
+         struct hello_failed_event{};
+
+         bool handshake_sent = false;
+         bool handshake_received = false;
+
+         void enter(session& peer);
          auto on(const hello_message& msg) -> next_states<connected_state>;
+         auto on(const hello_sent_event& msg) -> next_states<connected_state>;
+         auto on(const hello_failed_event& msg, session& peer) -> void;
          auto on(const connection_lost_event& e) -> next_states<disconnected_state>;
+
+         void send_hello(session& peer);
       };
 
       struct connected_state : public container<connected_state> {
@@ -236,7 +249,11 @@ namespace eosio { namespace net_v2 {
       ,shared(shared)
       ,session_index(shared.reserve_session_index())
       {
+         initialize();
       }
+
+      session() = delete;
+      session(const session&) = delete;
 
       fc::sha256       node_id;
       chain_info       chain;
@@ -248,8 +265,8 @@ namespace eosio { namespace net_v2 {
 
       base::state_machine_type session_state_machine;
       using state_machine_member_list = std::tuple<
-         container<session>::member<decltype(session_state_machine), &session_state_machine>
-      >
+         container<session>::member<decltype(session_state_machine), &session::session_state_machine>
+      >;
    };
 
 } } // namespace eosio::net_v2

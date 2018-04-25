@@ -13,9 +13,67 @@ namespace base {
       return next_state<handshaking_state>();
    }
 
+   void handshaking_state::send_hello(session& peer) {
+      auto msg = std::make_shared<net_message>(hello_message{
+         .chain_id = peer.shared.local_chain.chain_id,
+         .node_id = peer.shared.node_id,
+         .p2p_address = peer.shared.public_endpoint,
+#if defined( __APPLE__ )
+         .os = "osx",
+#elif defined( __linux__ )
+         .os = "linux",
+#elif defined( _MSC_VER )
+         .os = "win32",
+#else
+         .os = "other",
+#endif
+         .agent = peer.shared.agent_name
+      });
+
+      session_wptr weak_peer = peer.shared_from_this();
+      peer.conn->enqueue(msg, [msg, weak_peer](const fc::exception_ptr& err) {
+         if (weak_peer.expired()) {
+            return;
+         }
+
+         auto session_ptr = weak_peer.lock();
+         if (err) {
+            session_ptr->post(hello_failed_event());
+         } else {
+            session_ptr->post(hello_sent_event());
+         }
+      });
+   }
+
+   void handshaking_state::enter(session& peer) {
+      send_hello(peer);
+   }
+
    next_states<connected_state>
    handshaking_state::on(const hello_message& msg) {
-      return next_state<connected_state>();
+      handshake_received = true;
+
+      if (handshake_sent) {
+         return next_state<connected_state>();
+      } else {
+         return {};
+      }
+   }
+
+   next_states<connected_state>
+   handshaking_state::on(const hello_sent_event&) {
+      handshake_sent = true;
+
+      if (handshake_received) {
+         return next_state<connected_state>();
+      } else {
+         return {};
+      }
+   }
+
+   void
+   handshaking_state::on(const hello_failed_event&, session& peer) {
+      send_hello(peer);
    }
 
    next_states<disconnected_state>

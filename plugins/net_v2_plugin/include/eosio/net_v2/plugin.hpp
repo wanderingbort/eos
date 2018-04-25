@@ -24,20 +24,14 @@ namespace eosio { namespace net_v2 {
          plugin();
          virtual ~plugin();
 
-         virtual void set_program_options(options_description& cli, options_description& cfg) override;
+         APPBASE_PLUGIN_REQUIRES()
 
-         void plugin_initialize(const variables_map& options);
+         virtual void set_program_options(appbase::options_description& cli, appbase::options_description& cfg) override;
+
+         void plugin_initialize(const appbase::variables_map& options);
          void plugin_startup();
          void plugin_shutdown();
 
-         void   broadcast_block(const signed_block &sb);
-
-         bool                           connect( const string& endpoint );
-         bool                           disconnect( const string& endpoint );
-         optional<connection_status>    status( const string& endpoint )const;
-         vector<connection_status>      connections()const;
-
-         size_t num_peers() const;
       private:
          std::unique_ptr<class plugin_impl> my;
    };

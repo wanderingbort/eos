@@ -5,6 +5,7 @@
 #pragma once
 
 #include <eosio/net_v2/protocol.hpp>
+#include <eosio/net_v2/message_buffer.hpp>
 #include <boost/signals2/signal.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ip/host_name.hpp>
@@ -24,7 +25,7 @@ namespace eosio { namespace net_v2 {
    using boost::asio::io_service;
    using boost::asio::steady_timer;
    using boost::signals2::signal;
-   using namespace boost::system;
+   using boost::system::error_code;
    using namespace std;
 
 
@@ -42,9 +43,42 @@ namespace eosio { namespace net_v2 {
    using result_signal_type = signal<void(const fc::exception_ptr& , Results...)>;
 
    template<typename ...Results>
-   using then_type = const result_signal_type<Results...>::slot_type&;
+   using then_type = const typename result_signal_type<Results...>::slot_type&;
+
+   using error_signal = signal<void(const fc::exception_ptr&)>;
 
    class connection_manager;
+   class connection;
+   using connection_ptr = shared_ptr<connection>;
+   using connection_wptr = weak_ptr<connection>;
+   using data_buffer_ptr = shared_ptr<bytes>;
+   using message_buffer_type = message_buffer<1024*1024>;
+
+   class lazy_data_buffer_ptr {
+      public:
+
+         explicit operator data_buffer_ptr() const {
+            auto res = std::make_shared<bytes>();
+            res->resize(size);
+
+            auto read_index = mb.read_index();
+            mb.peek(res->data(), res->size(), read_index);
+            return res;
+         }
+
+      private:
+         lazy_data_buffer_ptr(const message_buffer_type& mb, uint32_t size)
+         :mb(mb)
+         ,size(size)
+         {
+         }
+
+         const message_buffer_type& mb;
+         uint32_t                   size;
+
+         friend class connection;
+   };
+
    class connection : public std::enable_shared_from_this<connection> {
       public:
          ~connection()
@@ -53,27 +87,24 @@ namespace eosio { namespace net_v2 {
          }
 
          void close();
-         void open(bool auto_reconnect = false);
+         void open();
 
-         using message_signal = signal<void(const net_message_ptr&)>;
+         using message_signal = signal<void(const net_message_ptr&, const lazy_data_buffer_ptr&)>;
          message_signal on_message;
 
-         using disconnect_signal = signal<void()>;
-         disconnect_signal on_disconnected;
+         using disconnected_signal = signal<void()>;
+         disconnected_signal on_disconnected;
 
-         using disconnect_signal = signal<void()>;
-         disconnect_signal on_connected;
+         using connected_signal = signal<void()>;
+         connected_signal on_connected;
 
-         using error_signal = signal<void(const fc::exception_ptr&)>;
          error_signal on_error;
 
          bool enqueue( const net_message_ptr& msg, then_type<> then );
-         bool enqueue( const shared_ptr<bytes>& raw, then_type<> then );
+         bool enqueue( const data_buffer_ptr& raw, then_type<> then );
 
-         using socket_ptr = std::unique_ptr<tcp::socket>;
          string                      endpoint;
          fc::optional<tcp::endpoint> resolved_endpoint;
-         socket_ptr                  socket;
 
       private:
          connection(const string& endpoint, connection_manager& mgr)
@@ -81,23 +112,45 @@ namespace eosio { namespace net_v2 {
          {
          }
 
+         using socket_ptr = std::unique_ptr<tcp::socket>;
+         connection(socket_ptr&& socket, const string& endpoint, connection_manager& mgr)
+         : endpoint(endpoint)
+         , mgr(mgr)
+         , socket(std::move(socket))
+         {
+         }
+
          void initiate();
          void set_retry();
+         void handle_error();
+         bool read_message();
+
+         static void try_connect(const connection_ptr& c, tcp::resolver::iterator endpoint_itr);
 
          connection_manager&         mgr;
          bool                        reconnect = false;
          fc::optional<steady_timer>  reconnect_timer;
          int                         retry_attempts = 0;
+         socket_ptr                  socket;
+
+         using payload_type = fc::static_variant<net_message_ptr, data_buffer_ptr>;
+         using queued_write = std::tuple<payload_type, std::decay_t<then_type<>>>;
+
+         std::deque<queued_write>      queued_writes;
+         message_buffer_type           queued_reads;
+
+         static void write_next(const connection_ptr& c);
+         static void read_next(const connection_ptr& c);
+
          friend class connection_manager;
    };
 
-   using connection_ptr = shared_ptr<connection>;
-   using connection_wptr = weak_ptr<connection>;
 
    class connection_manager {
       public:
          explicit connection_manager(io_service& ios)
          :ios(ios)
+         ,acceptor(new tcp::acceptor(ios))
          ,resolver(new tcp::resolver(ios))
          {
          }
@@ -106,12 +159,21 @@ namespace eosio { namespace net_v2 {
 
          void listen( string host );
          signal<void(const connection_ptr&)> on_incoming_connection;
+         error_signal                        on_error;
 
       private:
+         void accept_next();
+
+         io_service&                      ios;
          unique_ptr<tcp::acceptor>        acceptor;
          unique_ptr<tcp::resolver>        resolver;
 
-         io_service&                      ios;
+         fc::optional<tcp::endpoint>      resolved_listen_endpoint;
+
+         int base_reconnect_delay_s = 1;
+         int max_reconnect_delay_s = 300;
+         int max_message_length = 10 * 1024 * 1024;
+
          friend class connection;
 
    };

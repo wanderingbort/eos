@@ -39,13 +39,16 @@ namespace eosio { namespace net_v2 {
 
    class plugin_impl : public std::enable_shared_from_this<plugin_impl> {
    public:
-      plugin_impl(io_service& ios)
+      explicit plugin_impl(io_service& ios)
       : connections(ios)
       {}
 
       void connect( const string& endpoint);
       void disconnect(const string& endpoint);
-      void post( const session_ptr& session, const net_message_ptr& msg);
+      void start_listening();
+
+      const session_ptr&  create_session( const connection_ptr& conn );
+      void post( const session_ptr& session, const net_message_ptr& msg, const lazy_data_buffer_ptr& lazy_buffer);
 
       int16_t                       network_version = 0;
       shared_state                  shared;
@@ -54,9 +57,7 @@ namespace eosio { namespace net_v2 {
       std::vector<session_ptr>      sessions;
 
       string                        listen_endpoint;
-      string                        public_endpoint;
       set<string>                   declared_peers;
-      string                        agent_name;
 
       fc::logger                    logger;
    };
@@ -88,7 +89,7 @@ namespace eosio { namespace net_v2 {
    }
 
    void plugin::plugin_initialize( const variables_map& options ) {
-      ilog("Initialize net plugin");
+      ilog("Initialize net v2 plugin");
       io_service& ios = app().get_io_service();
 
       my.reset(new plugin_impl(ios));
@@ -98,7 +99,7 @@ namespace eosio { namespace net_v2 {
       }
 
       if(options.count("p2p-server-address")) {
-         my->public_endpoint = options.at("p2p-server-address").as< string >();
+         my->shared.public_endpoint = options.at("p2p-server-address").as< string >();
       } else {
          // if this is an any/address we should pick an appropriate address
          bool is_any_address =
@@ -115,7 +116,7 @@ namespace eosio { namespace net_v2 {
 
             }
             auto port = my->listen_endpoint.substr( my->listen_endpoint.find_last_of(':'), my->listen_endpoint.size());
-            my->public_endpoint = host + port;
+            my->shared.public_endpoint = host + port;
          }
       }
 
@@ -125,17 +126,24 @@ namespace eosio { namespace net_v2 {
       }
 
       if(options.count("agent-name")) {
-         my->agent_name = options.at("agent-name").as<string>();
+         my->shared.agent_name = options.at("agent-name").as<string>();
+      }
+
+      if(options.count("node-id")) {
+         my->shared.node_id = fc::sha256(options.at("node-id").as<string>());
+      } else {
+         fc::rand_pseudo_bytes(my->shared.node_id.data(), my->shared.node_id.data_size());
       }
    }
 
    void plugin::plugin_startup() {
+      ilog("Startup net v2 plugin");
       // get information about the local chain, and subscribe to methods
       my->shared.local_chain.head_block_id = app().get_method<methods::get_head_block_id>()();
       my->shared.local_chain.last_irreversible_block_number = app().get_method<methods::get_last_irreversible_block_number>()();
 
       if (!my->listen_endpoint.empty()) {
-         my->connections.listen(my->listen_endpoint);
+         my->start_listening();
       }
 
       if(fc::get_logger_map().find("net_v2_plugin") != fc::get_logger_map().end())
@@ -154,35 +162,7 @@ namespace eosio { namespace net_v2 {
 
    void plugin_impl::connect(const string& endpoint) {
       auto conn = connections.get( endpoint );
-      sessions.emplace_back(conn, shared);
-      session_wptr weak_session = sessions.back();
-
-      conn->on_connected([weak_session]() {
-         if (!weak_session.expired()) {
-            weak_session.lock()->post(base::connection_established_event{});
-         }
-      });
-
-      conn->on_disconnected([weak_session]() {
-         if (!weak_session.expired()) {
-            weak_session.lock()->post(base::connection_lost_event{});
-         }
-      });
-
-      conn->on_message([weak_session, this](const net_message_ptr& msg) {
-         if (!weak_session.expired()) {
-            post(weak_session.lock(), msg);
-         }
-      });
-
-      conn->on_error([weak_session, this](const fc::exception_ptr& e) {
-         if (!weak_session.expired()) {
-            auto session = weak_session.lock();
-            fc_elog(logger, "failed to connect to ${endpoint}", ("endpoint", session->conn->endpoint));
-            fc_dlog(logger, "${details}", ("details", e->to_detail_string()));
-         }
-      });
-
+      create_session(conn);
       conn->open();
    }
 
@@ -195,7 +175,7 @@ namespace eosio { namespace net_v2 {
       }
 
       if (iter != sessions.end()) {
-         auto last = std::prev(session.end());
+         auto last = std::prev(sessions.end());
          if (iter != last) {
             std::iter_swap(iter, last);
          }
@@ -205,21 +185,112 @@ namespace eosio { namespace net_v2 {
       }
    }
 
+   void plugin_impl::start_listening() {
+      connections.listen(listen_endpoint);
+      connections.on_incoming_connection.connect([this]( const connection_ptr& conn ){
+         auto session = create_session(conn);
+         // we are already connected, so fire off the event
+         session->post(base::connection_established_event{});
+      });
+   }
+
+   const session_ptr& plugin_impl::create_session(const connection_ptr& conn) {
+      sessions.emplace_back(new session(conn, shared));
+      const auto& session = sessions.back();
+      session_wptr weak_session = session;
+
+      conn->on_connected.connect([weak_session]() {
+         if (!weak_session.expired()) {
+            weak_session.lock()->post(base::connection_established_event{});
+         }
+      });
+
+      conn->on_disconnected.connect([weak_session]() {
+         if (!weak_session.expired()) {
+            weak_session.lock()->post(base::connection_lost_event{});
+         }
+      });
+
+      conn->on_message.connect([weak_session, this](const net_message_ptr& msg, const lazy_data_buffer_ptr& lazy_buffer) {
+         if (!weak_session.expired()) {
+            post(weak_session.lock(), msg, lazy_buffer);
+         }
+      });
+
+      conn->on_error.connect([weak_session, this](const fc::exception_ptr& e) {
+         if (!weak_session.expired()) {
+            auto session = weak_session.lock();
+            fc_elog(logger, "failed to connect to ${endpoint}", ("endpoint", session->conn->endpoint));
+            fc_dlog(logger, "${details}", ("details", e->to_detail_string()));
+         }
+      });
+
+      return session;
+   }
+
    struct session_post_visitor : fc::visitor<void> {
       session_post_visitor(const session_ptr& session)
       :session(session)
       {}
 
-      void operator()( const auto& msg ) {
+      template<typename M>
+      void operator()( const M& msg ) {
          session->post(msg);
       }
 
       const session_ptr& session;
    };
 
-   void plugin_impl::post( const session_ptr& session, const net_message_ptr& msg) {
+   void plugin_impl::post( const session_ptr& session, const net_message_ptr& msg, const lazy_data_buffer_ptr& lazy_buffer) {
       // maybe do something with this message and the greater chain?
-      msg.visit(session_post_visitor(session));
+      if (msg->contains<signed_block>()) {
+
+         // this is an aliased shared pointer so we don't have to copy the contents of the msg;
+         auto block_ptr = std::shared_ptr<signed_block>(msg, &msg->get<signed_block>());
+         block_cache_object new_obj = {
+            .id = block_ptr->id(),
+            .prev = block_ptr->previous,
+            .blk = block_ptr,
+            .raw = (data_buffer_ptr)lazy_buffer,
+            .session_acks = dynamic_bitset()
+         };
+         auto res = shared.blk_cache.insert(new_obj);
+
+         shared.blk_cache.modify(res.first, [&](block_cache_object& obj) {
+            if (obj.session_acks.size() <= session->session_index ) {
+               obj.session_acks.resize(session->session_index + 1, false);
+            }
+
+            obj.session_acks.at(session->session_index) = true;
+         });
+
+      } else if (msg->contains<packed_transaction>()) {
+         // this is an aliased shared pointer so we don't have to copy the contents of the msg;
+         auto trx_ptr = std::shared_ptr<packed_transaction>(msg, &msg->get<packed_transaction>());
+
+         // todo get ID and expiration more efficiently!!!
+         auto unpacked_trx = trx_ptr->get_transaction();
+
+         transaction_cache_object new_obj = {
+            .id = unpacked_trx.id(),
+            .expiration = unpacked_trx.expiration,
+            .trx = trx_ptr,
+            .raw = (data_buffer_ptr)lazy_buffer,
+            .session_acks = dynamic_bitset()
+         };
+
+         auto res = shared.txn_cache.insert(new_obj);
+
+         shared.txn_cache.modify(res.first, [&](transaction_cache_object& obj) {
+            if (obj.session_acks.size() <= session->session_index ) {
+               obj.session_acks.resize(session->session_index + 1, false);
+            }
+
+            obj.session_acks.at(session->session_index) = true;
+         });
+      }
+
+      msg->visit(session_post_visitor(session));
    }
 
 

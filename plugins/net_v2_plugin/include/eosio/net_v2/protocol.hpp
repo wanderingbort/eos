@@ -103,7 +103,7 @@ namespace eosio { namespace net_v2 {
    using net_event = static_variant<sent_block_event,
                                     received_block_event,
                                     broadcast_block_event,
-                                    broadcast_transaction_event>
+                                    broadcast_transaction_event>;
 
    using net_message_ptr = std::shared_ptr<net_message>;
 
@@ -111,10 +111,10 @@ namespace eosio { namespace net_v2 {
 
 FC_REFLECT( eosio::net_v2::hello_message,
             (network_version)(chain_id)(node_id)
-            (os)(agent)(generation) )
-FC_REFLECT( eosio::net_v2::go_away_message, (reason)(node_id) )
+            (os)(agent))
+FC_REFLECT( eosio::net_v2::goodbye_message, (reason)(node_id) )
 FC_REFLECT( eosio::net_v2::status_message, (last_irreversible_block_number)(head_block_id))
-FC_REFLECT( eosio::net_v2::subscribe_message, BOOST_PP_NULL_SEQ )
-FC_REFLECT( eosio::net_v2::unsubscribe_message, BOOST_PP_NULL_SEQ )
+FC_REFLECT( eosio::net_v2::subscribe_message, BOOST_PP_SEQ_NIL )
+FC_REFLECT( eosio::net_v2::unsubscribe_message, BOOST_PP_SEQ_NIL )
 FC_REFLECT( eosio::net_v2::block_received_message, (block_id))
-FC_REFLECT( eosio::net_v2::transaction_received_message, (transation_id))
+FC_REFLECT( eosio::net_v2::transaction_received_message, (transaction_id))
