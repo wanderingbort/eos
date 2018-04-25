@@ -64,16 +64,10 @@ struct storage_ops<N, T&, Ts...> {
     static void con(int n, void *data) {}
 
     template<typename visitor>
-    static typename visitor::result_type apply(int n, void *data, visitor& v) {}
+    static typename std::decay_t<visitor>::result_type apply(int n, void *data, visitor&& v) {}
 
     template<typename visitor>
-    static typename visitor::result_type apply(int n, void *data, const visitor& v) {}
-
-    template<typename visitor>
-    static typename visitor::result_type apply(int n, const void *data, visitor& v) {}
-
-    template<typename visitor>
-    static typename visitor::result_type apply(int n, const void *data, const visitor& v) {}
+    static typename std::decay_t<visitor>::result_type apply(int n, const void *data, visitor&& v) {}
 };
 
 template<int N, typename T, typename... Ts>
@@ -88,28 +82,17 @@ struct storage_ops<N, T, Ts...> {
     }
 
     template<typename visitor>
-    static typename visitor::result_type apply(int n, void *data, visitor& v) {
+    static typename std::decay_t<visitor>::result_type apply(int n, void *data, visitor&& v) {
         if(n == N) return v(*reinterpret_cast<T*>(data));
-        else return storage_ops<N + 1, Ts...>::apply(n, data, v);
+        else return storage_ops<N + 1, Ts...>::apply(n, data, std::forward<visitor>(v));
     }
 
     template<typename visitor>
-    static typename visitor::result_type apply(int n, void *data, const visitor& v) {
-        if(n == N) return v(*reinterpret_cast<T*>(data));
-        else return storage_ops<N + 1, Ts...>::apply(n, data, v);
-    }
-
-    template<typename visitor>
-    static typename visitor::result_type apply(int n, const void *data, visitor& v) {
+    static typename std::decay_t<visitor>::result_type apply(int n, const void *data, visitor&& v) {
         if(n == N) return v(*reinterpret_cast<const T*>(data));
-        else return storage_ops<N + 1, Ts...>::apply(n, data, v);
+        else return storage_ops<N + 1, Ts...>::apply(n, data, std::forward<visitor>(v));
     }
 
-    template<typename visitor>
-    static typename visitor::result_type apply(int n, const void *data, const visitor& v) {
-        if(n == N) return v(*reinterpret_cast<const T*>(data));
-        else return storage_ops<N + 1, Ts...>::apply(n, data, v);
-    }
 };
 
 template<int N>
@@ -122,19 +105,11 @@ struct storage_ops<N> {
     }
 
     template<typename visitor>
-    static typename visitor::result_type apply(int n, void *data, visitor& v) {
+    static typename std::decay_t<visitor>::result_type apply(int n, void *data, visitor&& v) {
        FC_THROW_EXCEPTION( fc::assert_exception, "Internal error: static_variant tag is invalid." );
     }
     template<typename visitor>
-    static typename visitor::result_type apply(int n, void *data, const visitor& v) {
-       FC_THROW_EXCEPTION( fc::assert_exception, "Internal error: static_variant tag is invalid." );
-    }
-    template<typename visitor>
-    static typename visitor::result_type apply(int n, const void *data, visitor& v) {
-       FC_THROW_EXCEPTION( fc::assert_exception, "Internal error: static_variant tag is invalid." );
-    }
-    template<typename visitor>
-    static typename visitor::result_type apply(int n, const void *data, const visitor& v) {
+    static typename std::decay_t<visitor>::result_type apply(int n, const void *data, visitor&& v) {
        FC_THROW_EXCEPTION( fc::assert_exception, "Internal error: static_variant tag is invalid." );
     }
 };
@@ -320,23 +295,14 @@ public:
         }
     }
     template<typename visitor>
-    typename visitor::result_type visit(visitor& v) {
-        return impl::storage_ops<0, Types...>::apply(_tag, storage, v);
+    typename std::decay_t<visitor>::result_type visit(visitor&& v) {
+        return impl::storage_ops<0, Types...>::apply(_tag, storage, std::forward<visitor>(v));
     }
 
-    template<typename visitor>
-    typename visitor::result_type visit(const visitor& v) {
-        return impl::storage_ops<0, Types...>::apply(_tag, storage, v);
-    }
 
     template<typename visitor>
-    typename visitor::result_type visit(visitor& v)const {
-        return impl::storage_ops<0, Types...>::apply(_tag, storage, v);
-    }
-
-    template<typename visitor>
-    typename visitor::result_type visit(const visitor& v)const {
-        return impl::storage_ops<0, Types...>::apply(_tag, storage, v);
+    typename std::decay_t<visitor>::result_type visit(visitor&& v)const {
+        return impl::storage_ops<0, Types...>::apply(_tag, storage, std::forward<visitor>(v));
     }
 
     static int count() { return impl::type_info<Types...>::count; }
