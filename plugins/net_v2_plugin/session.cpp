@@ -16,8 +16,8 @@ namespace base {
    void handshaking_state::send_hello(session& peer) {
       auto msg = std::make_shared<net_message>(hello_message{
          .chain_id = peer.shared.local_chain.chain_id,
-         .node_id = peer.shared.node_id,
-         .p2p_address = peer.shared.public_endpoint,
+         .node_id = peer.shared.local_info.node_id,
+         .p2p_address = peer.shared.local_info.public_endpoint,
 #if defined( __APPLE__ )
          .os = "osx",
 #elif defined( __linux__ )
@@ -27,7 +27,7 @@ namespace base {
 #else
          .os = "other",
 #endif
-         .agent = peer.shared.agent_name
+         .agent = peer.shared.local_info.agent_name
       });
 
       session_wptr weak_peer = peer.shared_from_this();
@@ -50,8 +50,13 @@ namespace base {
    }
 
    next_states<connected_state>
-   handshaking_state::on(const hello_message& msg) {
+   handshaking_state::on(const hello_message& msg, session& peer) {
       handshake_received = true;
+
+      peer.info.node_id = msg.node_id;
+      peer.info.agent_name = msg.agent;
+      peer.info.public_endpoint = msg.p2p_address;
+      peer.chain.chain_id = msg.chain_id;
 
       if (handshake_sent) {
          return next_state<connected_state>();
@@ -82,7 +87,7 @@ namespace base {
    };
 
    void connected_state::enter(session& peer) {
-
+      initialize(peer);
    }
 
    next_states<disconnected_state>
@@ -91,7 +96,7 @@ namespace base {
    };
 
    void connected_state::exit(session& peer) {
-
+      shutdown(peer);
    }
 
    /**
@@ -104,7 +109,6 @@ namespace base {
    }
 }
 
-#if 0
 namespace broadcast {
    /**
     * On a new subscription message, determine which of the subscribed states to transition to
@@ -117,7 +121,7 @@ namespace broadcast {
       return next_state<desynced_state>();
    }
 
-   void desynced_state::enter(const session::connected_state& parent, const session& peer) {
+   void desynced_state::enter(const base::connected_state& parent, const session& peer) {
       const auto& local_chain = peer.shared.local_chain;
       auto local_lib = local_chain.last_irreversible_block_number;
       auto peer_lib = peer.chain.last_irreversible_block_number;
@@ -125,11 +129,11 @@ namespace broadcast {
       const auto& peer_head_id = peer.chain.head_block_id;
 
       if (local_lib > peer_lib) {
-         sub_state.set_state<peer_behind_state>(peer);
+         sub_state.initialize<peer_behind_state>(parent, peer);
       } else if (local_lib < peer_lib || peer_head_id != local_head_id) {
-         sub_state.set_state<local_behind_state>(peer);
+         sub_state.initialize<local_behind_state>(parent, peer);
       } else {
-         post(completed_event{}, *this);
+         post(completed_event{}, parent);
          // TODO: determine if the peer is on the same fork as the local
          // if they are on the same fork they may be ahead of us
          // if they are on a different fork then we will consider them "behind" us for no
@@ -147,7 +151,7 @@ namespace broadcast {
       return next_state<subscribed_state>();
    }
 
-   void desynced_state::exit(const session::connected_state& parent, const session& peer) {
+   void desynced_state::exit(const base::connected_state& parent, const session& peer) {
 
    }
 
@@ -160,7 +164,7 @@ namespace broadcast {
     * @param local
     * @param peer
     */
-   void desynced_state::peer_behind_state::on(const sent_block_event& event, desynced_state& parent, const session::connected_state& connected, const session& peer) {
+   void desynced_state::peer_behind_state::on(const sent_block_event& event, desynced_state& parent, const base::connected_state& connected, const session& peer) {
       const auto& local_chain = peer.shared.local_chain;
       const auto& local_head_id = local_chain.head_block_id;
       if (event.id == local_head_id) {
@@ -180,7 +184,7 @@ namespace broadcast {
     * @param local
     * @param peer
     */
-   void desynced_state::local_behind_state::on(const received_block_event& event, desynced_state& parent, const session::connected_state& connected, const session& peer) {
+   void desynced_state::local_behind_state::on(const received_block_event& event, desynced_state& parent, const base::connected_state& connected, const session& peer) {
       const auto& local_chain = peer.shared.local_chain;
       auto local_lib = local_chain.last_irreversible_block_number;
       auto peer_lib = peer.chain.last_irreversible_block_number;
@@ -207,8 +211,8 @@ namespace broadcast {
     * @param local
     * @param peer
     */
-   void subscribed_state::on(const broadcast_block_event& event, session::connected_state& connected) {
-      if (!event.entry.session_acks.at(session_index)) {
+   void subscribed_state::on(const broadcast_block_event& event, base::connected_state&, session& peer) {
+      if (!event.entry.session_acks.at(peer.session_index)) {
          // send the block to this peer
       }
    }
@@ -219,8 +223,8 @@ namespace broadcast {
     * @param local
     * @param peer
     */
-   void subscribed_state::on(const broadcast_transaction_event& event, session::connected_state& connected) {
-      if (!event.entry.session_acks.at(session_index)) {
+   void subscribed_state::on(const broadcast_transaction_event& event, base::connected_state&, session& peer) {
+      if (!event.entry.session_acks.at(peer.session_index)) {
          // send the transaction to this peer
       }
    }
@@ -234,14 +238,13 @@ namespace receiver {
       return next_state<subscribed_state>();
    }
 
-   void subscribed_state::enter(session::connected_state& connected, const session& peer) {
+   void subscribed_state::enter(base::connected_state& connected, const session& peer) {
       // send a subscribe
    }
 
-   void subscribed_state::exit(session::connected_state& connected, const session& peer) {
+   void subscribed_state::exit(base::connected_state& connected, const session& peer) {
       // send unsubscribe
    }
 
 }
-#endif
 }} // namespace eosio::net_v2

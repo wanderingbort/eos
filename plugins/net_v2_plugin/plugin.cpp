@@ -99,7 +99,7 @@ namespace eosio { namespace net_v2 {
       }
 
       if(options.count("p2p-server-address")) {
-         my->shared.public_endpoint = options.at("p2p-server-address").as< string >();
+         my->shared.local_info.public_endpoint = options.at("p2p-server-address").as< string >();
       } else {
          // if this is an any/address we should pick an appropriate address
          bool is_any_address =
@@ -116,7 +116,7 @@ namespace eosio { namespace net_v2 {
 
             }
             auto port = my->listen_endpoint.substr( my->listen_endpoint.find_last_of(':'), my->listen_endpoint.size());
-            my->shared.public_endpoint = host + port;
+            my->shared.local_info.public_endpoint = host + port;
          }
       }
 
@@ -126,13 +126,13 @@ namespace eosio { namespace net_v2 {
       }
 
       if(options.count("agent-name")) {
-         my->shared.agent_name = options.at("agent-name").as<string>();
+         my->shared.local_info.agent_name = options.at("agent-name").as<string>();
       }
 
       if(options.count("node-id")) {
-         my->shared.node_id = fc::sha256(options.at("node-id").as<string>());
+         my->shared.local_info.node_id = fc::sha256(options.at("node-id").as<string>());
       } else {
-         fc::rand_pseudo_bytes(my->shared.node_id.data(), my->shared.node_id.data_size());
+         fc::rand_pseudo_bytes(my->shared.local_info.node_id.data(), my->shared.local_info.node_id.data_size());
       }
    }
 
@@ -153,7 +153,6 @@ namespace eosio { namespace net_v2 {
       for( auto seed_node : my->declared_peers ) {
          my->connect(seed_node);
       }
-
    }
 
    void plugin::plugin_shutdown() {
@@ -264,6 +263,8 @@ namespace eosio { namespace net_v2 {
             obj.session_acks.at(session->session_index) = true;
          });
 
+         session->post(received_block_event{res.first->id, *res.first});
+
       } else if (msg->contains<packed_transaction>()) {
          // this is an aliased shared pointer so we don't have to copy the contents of the msg;
          auto trx_ptr = std::shared_ptr<packed_transaction>(msg, &msg->get<packed_transaction>());
@@ -288,9 +289,11 @@ namespace eosio { namespace net_v2 {
 
             obj.session_acks.at(session->session_index) = true;
          });
-      }
 
-      msg->visit(session_post_visitor(session));
+         session->post(received_transaction_event{res.first->id, *res.first});
+      } else {
+         msg->visit(session_post_visitor(session));
+      }
    }
 
 

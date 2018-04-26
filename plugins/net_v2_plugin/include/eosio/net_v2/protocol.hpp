@@ -94,16 +94,6 @@ namespace eosio { namespace net_v2 {
                                       signed_block,
                                       packed_transaction>;
 
-   // internal events when the system does something
-   struct sent_block_event;
-   struct received_block_event;
-   struct broadcast_block_event;
-   struct broadcast_transaction_event;
-
-   using net_event = static_variant<sent_block_event,
-                                    received_block_event,
-                                    broadcast_block_event,
-                                    broadcast_transaction_event>;
 
    using net_message_ptr = std::shared_ptr<net_message>;
 

@@ -252,18 +252,21 @@ namespace eosio { namespace net_v2 { namespace state_machine {
          using _enter_traits = enter_traits<State, Args...>;
 
          template<typename State, std::size_t ... I>
-         void call_enter(State &s, std::index_sequence<I...>) {
+         void call_enter(State& s, std::index_sequence<I...>) {
             impl::debug_printer<State, std::tuple_element_t<I,args_type>...>::print(std::cerr, "enter");
             s.enter(std::get<I>(args)... );
          };
 
          template<typename State>
-         auto operator() (State& s) -> std::enable_if_t<_enter_traits<State>::exists> {
-            call_enter(s, std::make_index_sequence< _enter_traits<State>::arg_count >{});
+         auto operator() (State&& s) -> std::enable_if_t<_enter_traits<State>::exists> {
+            call_enter(std::forward<State>(s), std::make_index_sequence< _enter_traits<State>::arg_count >{});
          }
 
          // do nothing there is no enter
-         void operator() ( ... ) {}
+         template<typename State>
+         auto operator() ( State& s ) -> std::enable_if_t<!_enter_traits<State>::exists> {
+
+         }
       };
 
       template<typename ArgsTuple>
@@ -294,12 +297,15 @@ namespace eosio { namespace net_v2 { namespace state_machine {
          };
    
          template<typename State>
-         auto operator() (State& s) -> std::enable_if_t<_exit_traits<State>::exists> {
-            call_exit(s, std::make_index_sequence< _exit_traits<State>::arg_count >{});
+         auto operator() (State&& s) -> std::enable_if_t<_exit_traits<State>::exists> {
+            call_exit(std::forward<State>(s), std::make_index_sequence< _exit_traits<State>::arg_count >{});
          }
    
          // do nothing there is no exit
-         void operator() ( ... ) {}
+         template<typename State>
+         auto operator() ( State& s ) -> std::enable_if_t<!_exit_traits<State>::exists> {
+
+         }
       };
    
       template<typename ArgsTuple>
@@ -373,19 +379,19 @@ namespace eosio { namespace net_v2 { namespace state_machine {
          };
 
          template<typename State>
-         auto operator() (State& s) -> std::enable_if_t<_on_traits<State>::exists && _on_traits<State>::is_void, bool> {
-            call_void_on(s, std::make_index_sequence< _on_traits<State>::arg_count >{});
+         auto operator() (State&& s) -> std::enable_if_t<_on_traits<State>::exists && _on_traits<State>::is_void, bool> {
+            call_void_on(std::forward<State>(s), std::make_index_sequence< _on_traits<State>::arg_count >{});
             return false;
          }
 
          template<typename State>
-         auto operator() (State& s) -> std::enable_if_t<_on_traits<State>::exists && !_on_traits<State>::is_void, bool > {
-            return call_on(s, std::make_index_sequence< _on_traits<State>::arg_count >{});
+         auto operator() (State&& s) -> std::enable_if_t<_on_traits<State>::exists && !_on_traits<State>::is_void, bool > {
+            return call_on(std::forward<State>(s), std::make_index_sequence< _on_traits<State>::arg_count >{});
          }
 
-         // do nothing, there is no exit
-         bool operator() ( ... )
-         {
+         // do nothing, there is no on
+         template<typename State>
+         auto operator() (State& s) -> std::enable_if_t<!_on_traits<State>::exists, bool > {
             return false;
          }
       };
@@ -414,13 +420,16 @@ namespace eosio { namespace net_v2 { namespace state_machine {
          };
 
          template<typename State>
-         auto operator() (State& s) -> std::enable_if_t<state_traits<State>::template has_exact_post_v<Args...>> {
-            call_post(s, std::index_sequence_for<Args...>{});
+         auto operator() (State&& s) -> std::enable_if_t<state_traits<State>::template has_exact_post_v<Args...>> {
+            call_post(std::forward<State>(s), std::index_sequence_for<Args...>{});
          }
 
          // do nothing, there is no exit
-         void operator() ( ... )
-         {}
+         template<typename State>
+         auto operator() (State& s) -> std::enable_if_t<!state_traits<State>::template has_exact_post_v<Args...>>
+         {
+
+         }
       };
 
       template<typename ArgsTuple>
@@ -458,7 +467,7 @@ namespace eosio { namespace net_v2 { namespace state_machine {
       struct container_initialize_visitor_impl<Cls, state_machine_member<Cls, Type, Val>> {
          template<typename ...Args>
          static void call(Cls& container, Args&&... args) {
-            (container.*Val).initialize(std::forward<Args>(args)...);
+            (container.*Val).initialize(container, std::forward<Args>(args)...);
          }
       };
 
@@ -496,7 +505,7 @@ namespace eosio { namespace net_v2 { namespace state_machine {
       struct container_shutdown_visitor_impl<Cls, state_machine_member<Cls, Type, Val>> {
          template<typename ...Args>
          static void call(Cls& container, Args&&... args) {
-            (container.*Val).shutdown(std::forward<Args>(args)...);
+            (container.*Val).shutdown(container, std::forward<Args>(args)...);
          }
       };
 
@@ -641,7 +650,7 @@ namespace eosio { namespace net_v2 { namespace state_machine {
       }
 
       template<typename ...Args>
-      void shutdown(Args... args) {
+      void shutdown(Args&&... args) {
          impl::debug_printer<Derived, Args&&...>::print(std::cerr, "shutdown");
          Derived& upcast = *reinterpret_cast<Derived*>(this);
          impl::container_shutdown_visitor<Derived, typename Derived::state_machine_member_list>::call(upcast, std::forward<Args>(args)...);

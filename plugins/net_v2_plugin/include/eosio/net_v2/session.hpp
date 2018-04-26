@@ -91,12 +91,16 @@ namespace eosio { namespace net_v2 {
       chain_id_type chain_id;
    };
 
+   struct node_info {
+      fc::sha256       node_id;
+      string           public_endpoint;
+      string           agent_name;
+   };
+
    struct shared_state {
       chain_info local_chain;
 
-      string      public_endpoint;
-      string      agent_name;
-      fc::sha256  node_id;
+      node_info  local_info;
 
 
       transaction_cache txn_cache;
@@ -108,14 +112,44 @@ namespace eosio { namespace net_v2 {
       }
    };
 
+   // internal events when the system does something
+   struct sent_block_event {
+      block_id_type id;
+      const block_cache_object& entry;
+   };
+
+   struct received_block_event {
+      block_id_type id;
+      const block_cache_object& entry;
+   };
+
+   struct sent_transaction_event {
+      block_id_type id;
+      const transaction_cache_object& entry;
+   };
+
+   struct received_transaction_event {
+      block_id_type id;
+      const transaction_cache_object& entry;
+   };
+
+   struct broadcast_block_event {
+      block_id_type id;
+      const block_cache_object& entry;
+   };
+   struct broadcast_transaction_event {
+      block_id_type id;
+      const block_cache_object& entry;
+   };
+
    namespace base {
       struct connected_state;
    };
 
-#if 0
    namespace broadcast {
       struct desynced_state;
       struct subscribed_state;
+
 
       /**
        * Idle state: this peer is connected but not subscribed.
@@ -162,7 +196,7 @@ namespace eosio { namespace net_v2 {
          machine<no_default_state, peer_behind_state, local_behind_state> sub_state;
 
          using state_machine_member_list = std::tuple<
-            container::member<decltype(&sub_state), &desynced_state::sub_state>
+            container::member<decltype(sub_state), &desynced_state::sub_state>
          >;
       };
 
@@ -172,9 +206,9 @@ namespace eosio { namespace net_v2 {
       struct subscribed_state  {
          auto on(const unsubscribe_message& msg) -> next_states<idle_state>;
 
-         void on(const broadcast_block_event& event, session& peer);
+         void on(const broadcast_block_event& event, base::connected_state&, session& peer);
 
-         void on(const broadcast_transaction_event& event, session& peer);
+         void on(const broadcast_transaction_event& event, base::connected_state&, session& peer);
       };
 
       using state_machine_type = machine<idle_state, desynced_state, subscribed_state>;
@@ -196,10 +230,10 @@ namespace eosio { namespace net_v2 {
 
       using state_machine_type = machine<idle_state, subscribed_state>;
    }
-#endif
 
    namespace base {
       struct connection_established_event {};
+      struct connection_accepted_event {};
       struct connection_lost_event {};
 
       struct handshaking_state;
@@ -216,7 +250,7 @@ namespace eosio { namespace net_v2 {
          bool handshake_received = false;
 
          void enter(session& peer);
-         auto on(const hello_message& msg) -> next_states<connected_state>;
+         auto on(const hello_message& msg, session& session) -> next_states<connected_state>;
          auto on(const hello_sent_event& msg) -> next_states<connected_state>;
          auto on(const hello_failed_event& msg, session& peer) -> void;
          auto on(const connection_lost_event& e) -> next_states<disconnected_state>;
@@ -230,12 +264,12 @@ namespace eosio { namespace net_v2 {
          auto on(const connection_lost_event& e) -> next_states<disconnected_state>;
          void exit(session& peer);
 
-         //broadcast::state_machine_type broadcast_state_machine;
-         //receiver::state_machine_type  receiver_state_machine;
+         broadcast::state_machine_type broadcast_state_machine;
+         receiver::state_machine_type  receiver_state_machine;
 
          using state_machine_member_list = std::tuple<
-            //container::member<decltype(broadcast_state_machine), &connected_state::broadcast_state_machine>,
-            //container::member<decltype(receiver_state_machine), &connected_state::receiver_state_machine>
+            container::member<decltype(broadcast_state_machine), &connected_state::broadcast_state_machine>,
+            container::member<decltype(receiver_state_machine), &connected_state::receiver_state_machine>
          >;
       };
 
@@ -255,8 +289,8 @@ namespace eosio { namespace net_v2 {
       session() = delete;
       session(const session&) = delete;
 
-      fc::sha256       node_id;
       chain_info       chain;
+      node_info        info;
 
       connection_ptr      conn;
       shared_state&       shared;
