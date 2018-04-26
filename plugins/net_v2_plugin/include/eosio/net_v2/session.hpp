@@ -286,6 +286,11 @@ namespace eosio { namespace net_v2 {
          initialize();
       }
 
+      ~session()
+      {
+         shutdown();
+      }
+
       session() = delete;
       session(const session&) = delete;
 

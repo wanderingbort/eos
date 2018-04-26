@@ -7,3 +7,5 @@ add_library( net_v2_plugin
 
 target_link_libraries( net_v2_plugin appbase fc eosio_chain )
 target_include_directories( net_v2_plugin PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../chain_interface/include )
+
+add_subdirectory( test )

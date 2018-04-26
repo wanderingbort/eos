@@ -5,6 +5,7 @@
 #include <appbase/application.hpp>
 
 #include <eosio/net_v2/plugin.hpp>
+#include <eosio/net_v2/mock_chain_plugin.hpp>
 #include <eosio/chain/plugin_interface.hpp>
 #include <eosio/chain/types.hpp>
 #include <fc/exception/exception.hpp>
@@ -24,16 +25,8 @@ int main(int argc, char** argv)
       auto root = fc::app_path(); 
       app().set_default_data_dir(root / "eosio/nodeos/data" );
       app().set_default_config_dir(root / "eosio/nodeos/config" );
-      if(!app().initialize<net_v2::plugin>(argc, argv))
+      if(!app().initialize<net_v2::plugin, net_v2::mock_chain_plugin>(argc, argv))
          return -1;
-
-      app().get_method<methods::get_head_block_id>().register_provider([]() -> const block_id_type& {
-         static block_id_type fake;
-         return fake;
-      });
-      app().get_method<methods::get_last_irreversible_block_number>().register_provider([]() -> uint32_t {
-         return 0U;
-      });
 
       app().startup();
       app().exec();
