@@ -15,7 +15,6 @@ using namespace appbase;
 using namespace eosio::chain;
 using namespace eosio::chain::plugin_interface;
 using boost::asio::io_service;
-using boost::thread;
 using namespace std;
 
 namespace eosio { namespace net_v2 {
@@ -39,8 +38,28 @@ namespace eosio { namespace net_v2 {
       ,get_last_irreversible_block_number_method(app().get_method<methods::get_last_irreversible_block_number>())
       {
       }
-      
+
+      struct trace_hack {
+         trace_hack()
+         :block()
+         ,trace(block)
+         {}
+
+         trace_hack( const trace_hack& ) = delete;
+         trace_hack( trace_hack&& ) = delete;
+
+         trace_hack& operator=(const trace_hack &) = delete;
+         trace_hack& operator=( trace_hack&& ) = delete;
+
+         signed_block block;
+         block_trace trace;
+      };
+
       void start_scenario() {
+         // test fires
+         auto hack = std::make_shared<trace_hack>();
+
+         app().get_channel<channels::applied_block>().publish(block_trace_ptr(hack, &hack->trace));
          scenario_thread.emplace([this]() -> void {
             run_scenario();
          });
@@ -87,8 +106,8 @@ namespace eosio { namespace net_v2 {
    void mock_chain_plugin::set_program_options( options_description& cli, options_description& /*cfg*/ )
    {
       cli.add_options()
-         ( "scenario", bpo::value<string>()->required(), "the scenario to run")
-         ( "actor", bpo::value<string>()->required(), "the actor to play in the scenario")
+         ( "scenario", bpo::value<std::string>()->required(), "the scenario to run")
+         ( "actor", bpo::value<std::string>()->required(), "the actor to play in the scenario")
          ;
    }
 

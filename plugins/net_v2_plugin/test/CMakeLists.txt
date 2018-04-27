@@ -35,7 +35,6 @@ endif()
 
 target_link_libraries( net_test
         PRIVATE appbase
-        PRIVATE -Wl,${whole_archive_flag} net_v2_plugin -Wl,${no_whole_archive_flag}
-        PRIVATE -Wl,${whole_archive_flag} net_v2_mock_chain_plugin -Wl,${no_whole_archive_flag}
+        PRIVATE net_v2_plugin net_v2_mock_chain_plugin
         PRIVATE eosio_chain fc ${CMAKE_DL_LIBS} ${PLATFORM_SPECIFIC_LIBS} )
 
