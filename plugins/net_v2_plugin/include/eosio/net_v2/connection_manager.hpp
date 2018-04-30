@@ -5,13 +5,13 @@
 #pragma once
 
 #include <eosio/net_v2/protocol.hpp>
-#include <eosio/net_v2/message_buffer.hpp>
 #include <boost/signals2/signal.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ip/host_name.hpp>
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <fc/exception/exception.hpp>
+#include <fc/network/message_buffer.hpp>
 
 #include <memory>
 
@@ -26,6 +26,7 @@ namespace eosio { namespace net_v2 {
    using boost::asio::steady_timer;
    using boost::signals2::signal;
    using boost::system::error_code;
+   using fc::message_buffer;
    using namespace std;
 
 

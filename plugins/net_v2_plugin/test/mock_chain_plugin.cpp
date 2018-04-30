@@ -27,11 +27,12 @@ namespace eosio { namespace net_v2 {
       : ios(ios)
       ,scenario(scenario)
       ,actor(actor)
-      ,incoming_blocks_channel(app().get_channel<channels::incoming_blocks>())
-      ,incoming_transactions_channel(app().get_channel<channels::incoming_transactions>())
-      ,applied_block_channel(app().get_channel<channels::applied_block>())
-      ,transaction_validation_results_channel(app().get_channel<channels::transaction_validation_results>())
-      ,block_validation_results_channel(app().get_channel<channels::block_validation_results>())
+      ,accepted_block_header_channel(app().get_channel<channels::accepted_block_header>())
+      ,accepted_block_channel(app().get_channel<channels::accepted_block>())
+      ,irreversible_block_channel(app().get_channel<channels::irreversible_block>())
+      ,accepted_transaction_channel(app().get_channel<channels::accepted_transaction>())
+      ,applied_transaction_channel(app().get_channel<channels::applied_transaction>())
+      ,accepted_confirmation_channel(app().get_channel<channels::accepted_confirmation>())
       ,get_block_by_number_method(app().get_method<methods::get_block_by_number>())
       ,get_block_by_id_method(app().get_method<methods::get_block_by_id>())
       ,get_head_block_id_method(app().get_method<methods::get_head_block_id>())
@@ -72,11 +73,12 @@ namespace eosio { namespace net_v2 {
       string scenario;
       string actor;
 
-      channels::incoming_blocks::channel_type&                    incoming_blocks_channel;
-      channels::incoming_transactions::channel_type&              incoming_transactions_channel;
-      channels::applied_block::channel_type&                      applied_block_channel;
-      channels::transaction_validation_results::channel_type&     transaction_validation_results_channel;
-      channels::block_validation_results::channel_type&           block_validation_results_channel;
+      channels::accepted_block_header::channel_type&              accepted_block_header_channel;
+      channels::accepted_block::channel_type&                     accepted_block_channel;
+      channels::irreversible_block::channel_type&                 irreversible_block_channel;
+      channels::accepted_transaction::channel_type&               accepted_transaction_channel;
+      channels::applied_transaction::channel_type&                applied_transaction_channel;
+      channels::accepted_confirmation::channel_type&              accepted_confirmation_channel;
 
       methods::get_block_by_number::method_type&                  get_block_by_number_method;
       methods::get_block_by_id::method_type&                      get_block_by_id_method;
@@ -91,22 +93,6 @@ namespace eosio { namespace net_v2 {
 
       fc::optional<thread> scenario_thread;
       volatile bool shutting_down = false;
-   };
-
-   struct trace_hack {
-      trace_hack()
-      :block()
-      ,trace(block)
-      {}
-
-      trace_hack( const trace_hack& ) = delete;
-      trace_hack( trace_hack&& ) = delete;
-
-      trace_hack& operator=(const trace_hack &) = delete;
-      trace_hack& operator=( trace_hack&& ) = delete;
-
-      signed_block block;
-      block_trace trace;
    };
 
    using plugin_impl_wptr = std::weak_ptr<mock_chain_plugin_impl>;

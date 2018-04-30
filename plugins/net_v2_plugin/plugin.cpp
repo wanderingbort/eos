@@ -44,9 +44,9 @@ namespace eosio { namespace net_v2 {
       {}
 
       ~plugin_impl() {
-         if (applied_block_subscription) {
-            applied_block_subscription->unsubscribe();
-            applied_block_subscription.reset();
+         if (accepted_block_header_subscription) {
+            accepted_block_header_subscription->unsubscribe();
+            accepted_block_header_subscription.reset();
          }
       }
 
@@ -56,7 +56,7 @@ namespace eosio { namespace net_v2 {
 
       const session_ptr&  create_session( const connection_ptr& conn );
       void post( const session_ptr& session, const net_message_ptr& msg, const lazy_data_buffer_ptr& lazy_buffer);
-      void on_applied_block(const block_trace_ptr& trace);
+      void on_accepted_block_header(const block_state_ptr& trace);
 
       int16_t                       network_version = 0;
       shared_state                  shared;
@@ -67,7 +67,7 @@ namespace eosio { namespace net_v2 {
       string                        listen_endpoint;
       set<string>                   declared_peers;
 
-      optional<channels::applied_block::channel_type::handle> applied_block_subscription;
+      optional<channels::accepted_block_header::channel_type::handle> accepted_block_header_subscription;
 
       fc::logger                    logger;
    };
@@ -159,8 +159,8 @@ namespace eosio { namespace net_v2 {
       if(fc::get_logger_map().find("net_v2_plugin") != fc::get_logger_map().end())
          my->logger = fc::get_logger_map()[logger_name];
 
-      my->applied_block_subscription = app().get_channel<channels::applied_block>().subscribe([this](const block_trace_ptr& trace){
-         my->on_applied_block(trace);
+      my->accepted_block_header_subscription = app().get_channel<channels::accepted_block_header>().subscribe([this](const block_state_ptr& trace){
+         my->on_accepted_block_header(trace);
       });
 
       for( auto seed_node : my->declared_peers ) {
@@ -309,18 +309,17 @@ namespace eosio { namespace net_v2 {
       }
    }
 
-   void plugin_impl::on_applied_block(const block_trace_ptr& trace) {
-      auto itr = shared.blk_cache.get<by_id>().find(trace->block.id());
+   void plugin_impl::on_accepted_block_header(const block_state_ptr& state) {
+      auto itr = shared.blk_cache.get<by_id>().find(state->block->id());
       if (itr == shared.blk_cache.end()) {
-         // this is a copy which is "bad" and hopefully removable on slim
-         auto block_ptr = std::make_shared<signed_block>(trace->block);
+         auto block_ptr = state->block;
          auto data_buffer = std::make_shared<bytes>();
 
          // this is also potentially wasteful if this was a block from the net code...
-         auto size = fc::raw::pack_size(trace->block);
+         auto size = fc::raw::pack_size(*block_ptr);
          data_buffer->resize(size);
          fc::datastream<char*> ds(data_buffer->data(), data_buffer->size());
-         fc::raw::pack(ds, trace->block);
+         fc::raw::pack(ds, *block_ptr);
 
          block_cache_object new_obj = {
             .id = block_ptr->id(),
@@ -335,7 +334,7 @@ namespace eosio { namespace net_v2 {
 
       // TODO: see if we can infer this in slim
       shared.local_chain.last_irreversible_block_number = app().get_method<methods::get_last_irreversible_block_number>()();
-      shared.local_chain.head_block_id = trace->block.id();
+      shared.local_chain.head_block_id = state->block->id();
 
       for (auto session: sessions) {
          session->post(broadcast_block_event{itr->id, *itr});

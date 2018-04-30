@@ -120,10 +120,19 @@ namespace fc {
      *  Logically, this is the different between where the read and write pointers are.
      */
     uint32_t bytes_to_read() const {
-      return (write_ind.first - read_ind.first) * buffer_len + write_ind.second - read_ind.second;
+      return bytes_to_read(read_ind);
     }
 
     /*
+     *  Returns the current number of bytes remaining to be read from a given index
+     *  Logically, this is the different between where the read and write pointers are.
+     */
+    uint32_t bytes_to_read(const index_t& from) const {
+      return (write_ind.first - from.first) * buffer_len + write_ind.second - from.second;
+    }
+
+
+     /*
      *  Returns the current number of bytes available to be written.
      *  Logically, this is the different between the write pointer and the
      *  end of the buffer.  If this is not enough room, call either
@@ -216,8 +225,8 @@ namespace fc {
      *  Reads size bytes from the buffer chain starting at the supplied index.
      *  The supplied index is advanced, but the read pointer is unaffected.
      */
-    bool peek(void* s, uint32_t size, index_t& index) {
-      if (bytes_to_read() < size) {
+    bool peek(void* s, uint32_t size, index_t& index) const {
+      if (bytes_to_read(index) < size) {
         return false;
       }
       if (index.second + size <= buffer_len) {
@@ -257,6 +266,10 @@ namespace fc {
      *  Returns the character pointer associated with the supplied index.
      */
     char* get_ptr(index_t index) {
+      return &buffers[index.first]->at(index.second);
+    }
+
+    const char* get_ptr(index_t index) const {
       return &buffers[index.first]->at(index.second);
     }
 
