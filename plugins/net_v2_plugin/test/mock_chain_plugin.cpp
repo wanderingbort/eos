@@ -37,6 +37,13 @@ namespace eosio { namespace net_v2 {
       ,get_head_block_id_method(app().get_method<methods::get_head_block_id>())
       ,get_last_irreversible_block_number_method(app().get_method<methods::get_last_irreversible_block_number>())
       {
+         get_head_block_provider = app().get_method<methods::get_head_block_id>().register_provider([this]() -> const block_id_type& {
+            return head_block_id;
+         });
+
+         get_last_irreversible_block_number_provider = app().get_method<methods::get_last_irreversible_block_number>().register_provider([this]() -> uint32_t {
+            return last_irreversible_block_number;
+         });
       }
 
       ~mock_chain_plugin_impl() {
@@ -46,16 +53,6 @@ namespace eosio { namespace net_v2 {
       }
 
       void start_scenario() {
-         // test fires
-
-         get_head_block_provider = app().get_method<methods::get_head_block_id>().register_provider([]() -> const block_id_type& {
-            static block_id_type fake;
-            return fake;
-         });
-         get_last_irreversible_block_number_provider = app().get_method<methods::get_last_irreversible_block_number>().register_provider([]() -> uint32_t {
-            return 0U;
-         });
-
          scenario_thread.emplace([this]() -> void {
             run_scenario();
          });
@@ -88,6 +85,9 @@ namespace eosio { namespace net_v2 {
 
       methods::get_head_block_id::method_type::handle                  get_head_block_provider;
       methods::get_last_irreversible_block_number::method_type::handle get_last_irreversible_block_number_provider;
+
+      block_id_type      head_block_id;
+      uint32_t           last_irreversible_block_number = 0U;
 
       fc::optional<thread> scenario_thread;
       volatile bool shutting_down = false;
@@ -128,12 +128,10 @@ namespace eosio { namespace net_v2 {
 
    void mock_chain_plugin::plugin_initialize( const variables_map& options ) {
       my.reset(new mock_chain_plugin_impl(app().get_io_service(), options.at("scenario").as<string>(), options.at("actor").as<string>()));
-      my->start_scenario();
    }
 
    void mock_chain_plugin::plugin_startup() {
-      auto hack = std::make_shared<trace_hack>();
-      my->applied_block_channel.publish(block_trace_ptr(hack, &hack->trace));
+      my->start_scenario();
    }
 
    void mock_chain_plugin::plugin_shutdown() {
