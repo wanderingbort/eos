@@ -257,6 +257,29 @@ public:
        v.visit( impl::move_construct<static_variant>(*this) );
        return *this;
     }
+
+    template<typename X>
+    static_variant& operator=( X&& v ) {
+       static_assert(
+          impl::position<X, Types...>::pos != -1,
+          "Type not in static_variant."
+       );
+       this->~static_variant();
+       init(std::forward<X>(v));
+       return *this;
+    }
+
+    template<typename X, typename ... Args>
+    void emplace(Args&& ...args) {
+       static_assert(
+          impl::position<X, Types...>::pos != -1,
+          "Type not in static_variant."
+       );
+       this->~static_variant();
+       _tag = impl::position<X, Types...>::pos;
+       new(storage) X( std::forward<Args>(args)... );
+    }
+
     friend bool operator == ( const static_variant& a, const static_variant& b )
     {
        return a.which() == b.which();
