@@ -48,11 +48,11 @@ namespace eosio { namespace net_v2 {
       void start_scenario() {
          // test fires
 
-         app().get_method<methods::get_head_block_id>().register_provider([]() -> const block_id_type& {
+         get_head_block_provider = app().get_method<methods::get_head_block_id>().register_provider([]() -> const block_id_type& {
             static block_id_type fake;
             return fake;
          });
-         app().get_method<methods::get_last_irreversible_block_number>().register_provider([]() -> uint32_t {
+         get_last_irreversible_block_number_provider = app().get_method<methods::get_last_irreversible_block_number>().register_provider([]() -> uint32_t {
             return 0U;
          });
 
@@ -85,6 +85,9 @@ namespace eosio { namespace net_v2 {
       methods::get_block_by_id::method_type&                      get_block_by_id_method;
       methods::get_head_block_id::method_type&                    get_head_block_id_method;
       methods::get_last_irreversible_block_number::method_type&   get_last_irreversible_block_number_method;
+
+      methods::get_head_block_id::method_type::handle                  get_head_block_provider;
+      methods::get_last_irreversible_block_number::method_type::handle get_last_irreversible_block_number_provider;
 
       fc::optional<thread> scenario_thread;
       volatile bool shutting_down = false;
