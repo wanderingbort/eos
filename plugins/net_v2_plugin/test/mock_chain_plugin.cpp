@@ -39,34 +39,30 @@ namespace eosio { namespace net_v2 {
       {
       }
 
-      struct trace_hack {
-         trace_hack()
-         :block()
-         ,trace(block)
-         {}
-
-         trace_hack( const trace_hack& ) = delete;
-         trace_hack( trace_hack&& ) = delete;
-
-         trace_hack& operator=(const trace_hack &) = delete;
-         trace_hack& operator=( trace_hack&& ) = delete;
-
-         signed_block block;
-         block_trace trace;
-      };
+      ~mock_chain_plugin_impl() {
+         if (scenario_thread) {
+            stop_scenario();
+         }
+      }
 
       void start_scenario() {
          // test fires
-         auto hack = std::make_shared<trace_hack>();
 
-         app().get_channel<channels::applied_block>().publish(block_trace_ptr(hack, &hack->trace));
+         app().get_method<methods::get_head_block_id>().register_provider([]() -> const block_id_type& {
+            static block_id_type fake;
+            return fake;
+         });
+         app().get_method<methods::get_last_irreversible_block_number>().register_provider([]() -> uint32_t {
+            return 0U;
+         });
+
          scenario_thread.emplace([this]() -> void {
             run_scenario();
          });
       }
 
       void stop_scenario() {
-         shutting_down;
+         shutting_down = true;
          scenario_thread->join();
          scenario_thread.reset();
       }
@@ -94,6 +90,22 @@ namespace eosio { namespace net_v2 {
       volatile bool shutting_down = false;
    };
 
+   struct trace_hack {
+      trace_hack()
+      :block()
+      ,trace(block)
+      {}
+
+      trace_hack( const trace_hack& ) = delete;
+      trace_hack( trace_hack&& ) = delete;
+
+      trace_hack& operator=(const trace_hack &) = delete;
+      trace_hack& operator=( trace_hack&& ) = delete;
+
+      signed_block block;
+      block_trace trace;
+   };
+
    using plugin_impl_wptr = std::weak_ptr<mock_chain_plugin_impl>;
 
    mock_chain_plugin::mock_chain_plugin()
@@ -117,6 +129,8 @@ namespace eosio { namespace net_v2 {
    }
 
    void mock_chain_plugin::plugin_startup() {
+      auto hack = std::make_shared<trace_hack>();
+      my->applied_block_channel.publish(block_trace_ptr(hack, &hack->trace));
    }
 
    void mock_chain_plugin::plugin_shutdown() {
