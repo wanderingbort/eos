@@ -163,7 +163,7 @@ namespace eosio { namespace net_v2 {
        * broadcast messages
        */
       struct desynced_state : public container<desynced_state>{
-         void enter(const base::connected_state& connected, const session& peer);
+         void enter(base::connected_state& connected, const session& peer);
 
          /**
           * Internal event to signal when desynced_state is resolved
@@ -182,7 +182,7 @@ namespace eosio { namespace net_v2 {
           * receiving real-time messages
           */
          struct peer_behind_state {
-            void on(const sent_block_event& event, desynced_state& parent, const base::connected_state& connected, const session& peer);
+            void on(const sent_block_event& event, const desynced_state& parent, base::connected_state& connected, const session& peer);
          };
 
          /**
@@ -190,7 +190,7 @@ namespace eosio { namespace net_v2 {
           * about the chain than we do locally.
           */
          struct local_behind_state {
-            void on(const received_block_event& event, desynced_state& parent, const base::connected_state& connected, const session& peer);
+            void on(const received_block_event& event, const desynced_state& parent, base::connected_state& connected, const session& peer);
          };
 
          machine<no_default_state, peer_behind_state, local_behind_state> sub_state;
@@ -233,8 +233,8 @@ namespace eosio { namespace net_v2 {
 
    namespace base {
       struct connection_established_event {};
-      struct connection_accepted_event {};
       struct connection_lost_event {};
+      struct status_timer_event {};
 
       struct handshaking_state;
       struct disconnected_state {
@@ -261,6 +261,7 @@ namespace eosio { namespace net_v2 {
       struct connected_state : public container<connected_state> {
          void enter(session& peer);
          void on(const status_message& msg, session& peer_session);
+         void on(const status_timer_event&, session& peer_session);
          auto on(const connection_lost_event& e) -> next_states<disconnected_state>;
          void exit(session& peer);
 
@@ -271,6 +272,9 @@ namespace eosio { namespace net_v2 {
             container::member<decltype(broadcast_state_machine), &connected_state::broadcast_state_machine>,
             container::member<decltype(receiver_state_machine), &connected_state::receiver_state_machine>
          >;
+
+         void send_status(session& peer);
+         optional<steady_timer> status_timer;
       };
 
       using state_machine_type = machine<disconnected_state, handshaking_state, connected_state>;
@@ -278,8 +282,9 @@ namespace eosio { namespace net_v2 {
 
    class session : public container<session>, public std::enable_shared_from_this<session> {
    public:
-      session(const connection_ptr& conn, shared_state& shared)
-      :conn(conn)
+      session(io_service& ios, const connection_ptr& conn, shared_state& shared)
+      :ios(ios)
+      ,conn(conn)
       ,shared(shared)
       ,session_index(shared.reserve_session_index())
       {
@@ -297,6 +302,7 @@ namespace eosio { namespace net_v2 {
       chain_info       chain;
       node_info        info;
 
+      io_service          &ios;
       connection_ptr      conn;
       shared_state&       shared;
       int                 session_index;

@@ -104,7 +104,7 @@ namespace eosio { namespace net_v2 {
             conn->on_error(wrap_boost_err(err));
 
             if (endpoint_itr == tcp::resolver::iterator() ) {
-               // set timer to re-try
+               conn->set_retry();
             } else {
                try_connect(conn, endpoint_itr);
             }

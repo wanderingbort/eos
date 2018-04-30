@@ -207,7 +207,7 @@ namespace eosio { namespace net_v2 {
    }
 
    const session_ptr& plugin_impl::create_session(const connection_ptr& conn) {
-      sessions.emplace_back(new session(conn, shared));
+      sessions.emplace_back(new session(app().get_io_service(), conn, shared));
       const auto& session = sessions.back();
       session_wptr weak_session = session;
 
@@ -333,11 +333,13 @@ namespace eosio { namespace net_v2 {
          itr = res.first;
       }
 
+      // TODO: see if we can infer this in slim
+      shared.local_chain.last_irreversible_block_number = app().get_method<methods::get_last_irreversible_block_number>()();
+      shared.local_chain.head_block_id = trace->block.id();
+
       for (auto session: sessions) {
          session->post(broadcast_block_event{itr->id, *itr});
       }
 
    }
-
-
 } }

@@ -439,6 +439,10 @@ namespace eosio { namespace net_v2 { namespace state_machine {
 
       template<typename NextState>
       struct construct_next_state_visitor : public fc::visitor<NextState> {
+         NextState operator() (const NextState& ) {
+            FC_THROW("Transitioning from a state to itself is illegal");
+         }
+
          template<typename State>
          auto operator() (const State& s) const -> std::enable_if_t<state_traits<NextState>::template can_construct_from_v<State>, NextState> {
             return NextState(s);

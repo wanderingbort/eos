@@ -1,5 +1,5 @@
 #include <eosio/net_v2/session.hpp>
-
+#include <boost/asio/error.hpp>
 
 namespace eosio { namespace net_v2 {
 
@@ -88,6 +88,7 @@ namespace base {
 
    void connected_state::enter(session& peer) {
       initialize(peer);
+      send_status(peer);
    }
 
    next_states<disconnected_state>
@@ -95,17 +96,41 @@ namespace base {
       return next_state<disconnected_state>();
    };
 
-   void connected_state::exit(session& peer) {
-      shutdown(peer);
+   void connected_state::on(const status_timer_event&, session& peer) {
+      send_status(peer);
    }
 
    /**
-    * This is a generic handler for status messges, it will fire *before* any state-specfic handler
+    * This is a generic handler for status messages, it will fire *before* any state-specfic handler
     * @param msg
     */
    void connected_state::on(const status_message& msg, session& peer) {
       peer.chain.head_block_id = msg.head_block_id;
       peer.chain.last_irreversible_block_number = msg.last_irreversible_block_number;
+   }
+
+   void connected_state::exit(session& peer) {
+      shutdown(peer);
+   }
+
+   void connected_state::send_status(session& peer) {
+      auto msg = std::make_shared<net_message>(status_message{
+      });
+
+      peer.conn->enqueue(msg, [msg](const fc::exception_ptr&) {
+         // this lambda just holds a ref to the shared_ptr<net_message>
+      });
+
+      status_timer.emplace(peer.ios, std::chrono::seconds(5));
+      session_wptr weak_peer = peer.shared_from_this();
+      status_timer->async_wait([weak_peer](const error_code& ec) {
+         if (weak_peer.expired() || ec == boost::asio::error::operation_aborted) {
+            return;
+         }
+
+         auto peer = weak_peer.lock();
+         peer->post(status_timer_event());
+      });
    }
 }
 
@@ -121,7 +146,7 @@ namespace broadcast {
       return next_state<desynced_state>();
    }
 
-   void desynced_state::enter(const base::connected_state& parent, const session& peer) {
+   void desynced_state::enter(base::connected_state& parent, const session& peer) {
       const auto& local_chain = peer.shared.local_chain;
       auto local_lib = local_chain.last_irreversible_block_number;
       auto peer_lib = peer.chain.last_irreversible_block_number;
@@ -133,7 +158,7 @@ namespace broadcast {
       } else if (local_lib < peer_lib || peer_head_id != local_head_id) {
          sub_state.initialize<local_behind_state>(parent, peer);
       } else {
-         post(completed_event{}, parent);
+         parent.post(completed_event{}, peer);
          // TODO: determine if the peer is on the same fork as the local
          // if they are on the same fork they may be ahead of us
          // if they are on a different fork then we will consider them "behind" us for no
@@ -155,7 +180,6 @@ namespace broadcast {
 
    }
 
-
    /**
     * When we send a block to a peer, determine if we have sent enough blocks to consider
     * this peer in-sync
@@ -164,12 +188,12 @@ namespace broadcast {
     * @param local
     * @param peer
     */
-   void desynced_state::peer_behind_state::on(const sent_block_event& event, desynced_state& parent, const base::connected_state& connected, const session& peer) {
+   void desynced_state::peer_behind_state::on(const sent_block_event& event, const desynced_state& parent, base::connected_state& connected, const session& peer) {
       const auto& local_chain = peer.shared.local_chain;
       const auto& local_head_id = local_chain.head_block_id;
       if (event.id == local_head_id) {
          // after we sent our head, we can turn on real-time syncing
-         parent.post(completed_event{}, peer);
+         connected.post(completed_event{}, peer);
       } else {
          // select next best block to send
          // we may have changed forks
@@ -184,7 +208,7 @@ namespace broadcast {
     * @param local
     * @param peer
     */
-   void desynced_state::local_behind_state::on(const received_block_event& event, desynced_state& parent, const base::connected_state& connected, const session& peer) {
+   void desynced_state::local_behind_state::on(const received_block_event& event, const desynced_state& parent, base::connected_state& connected, const session& peer) {
       const auto& local_chain = peer.shared.local_chain;
       auto local_lib = local_chain.last_irreversible_block_number;
       auto peer_lib = peer.chain.last_irreversible_block_number;
@@ -194,7 +218,7 @@ namespace broadcast {
 
       if (event.id == peer_head_id) {
          // after we received their head, we can turn on real-time syncing
-         parent.post(completed_event{}, peer);
+         connected.post(completed_event{}, peer);
       }
    }
 
