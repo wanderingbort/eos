@@ -41,6 +41,8 @@ namespace eosio { namespace net_v2 {
    public:
       explicit plugin_impl(io_service& ios)
       : connections(ios)
+      ,incoming_block_channel(app().get_channel<channels::incoming_block>())
+      ,incoming_transaction_channel(app().get_channel<channels::incoming_transaction>())
       {}
 
       ~plugin_impl() {
@@ -70,6 +72,9 @@ namespace eosio { namespace net_v2 {
 
       optional<channels::accepted_block_header::channel_type::handle> accepted_block_header_subscription;
       optional<channels::accepted_block::channel_type::handle>        accepted_block_subscription;
+
+      channels::incoming_block::channel_type&                         incoming_block_channel;
+      channels::incoming_transaction::channel_type&                   incoming_transaction_channel;
 
       fc::logger                    logger;
    };
@@ -283,7 +288,7 @@ namespace eosio { namespace net_v2 {
          });
 
          session->post(received_block_event{res.first->id, *res.first});
-
+         incoming_block_channel.publish(block_ptr);
       } else if (msg->contains<packed_transaction>()) {
          // this is an aliased shared pointer so we don't have to copy the contents of the msg;
          auto trx_ptr = std::shared_ptr<packed_transaction>(msg, &msg->get<packed_transaction>());
@@ -310,6 +315,34 @@ namespace eosio { namespace net_v2 {
          });
 
          session->post(received_transaction_event{res.first->id, *res.first});
+         incoming_transaction_channel.publish(trx_ptr);
+
+      } else if (msg->contains<block_received_message>()) {
+         auto block_id = msg->get<block_received_message>().block_id;
+
+         auto itr = shared.blk_cache.get<by_id>().find(block_id);
+         if (itr != shared.blk_cache.end()) {
+            shared.blk_cache.modify(itr, [&session](block_cache_object& obj){
+               if (obj.session_acks.size() <= session->session_index ) {
+                  obj.session_acks.resize(session->session_index + 1, false);
+               }
+
+               obj.session_acks.at(session->session_index) = true;
+            });
+         }
+      } else if (msg->contains<transaction_received_message>()) {
+         auto transaction_id = msg->get<transaction_received_message>().transaction_id;
+
+         auto itr = shared.txn_cache.get<by_id>().find(transaction_id);
+         if (itr != shared.txn_cache.end()) {
+            shared.txn_cache.modify(itr, [&session](transaction_cache_object& obj){
+               if (obj.session_acks.size() <= session->session_index ) {
+                  obj.session_acks.resize(session->session_index + 1, false);
+               }
+
+               obj.session_acks.at(session->session_index) = true;
+            });
+         }
       } else {
          msg->visit(session_post_visitor(session));
       }

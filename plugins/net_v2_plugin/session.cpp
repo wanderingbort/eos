@@ -13,7 +13,7 @@ namespace base {
       return next_state<handshaking_state>();
    }
 
-   void handshaking_state::send_hello(session& peer) {
+   void handshaking_state::enter(session& peer) {
       auto msg = std::make_shared<net_message>(hello_message{
          .chain_id = peer.shared.local_chain.chain_id,
          .node_id = peer.shared.local_info.node_id,
@@ -31,54 +31,17 @@ namespace base {
       });
 
       session_wptr weak_peer = peer.shared_from_this();
-      peer.conn->enqueue(msg, [msg, weak_peer](const fc::exception_ptr& err) {
-         if (weak_peer.expired()) {
-            return;
-         }
-
-         auto session_ptr = weak_peer.lock();
-         if (err) {
-            session_ptr->post(hello_failed_event());
-         } else {
-            session_ptr->post(hello_sent_event());
-         }
-      });
-   }
-
-   void handshaking_state::enter(session& peer) {
-      send_hello(peer);
+      peer.conn->enqueue(msg);
    }
 
    next_states<connected_state>
    handshaking_state::on(const hello_message& msg, session& peer) {
-      handshake_received = true;
-
       peer.info.node_id = msg.node_id;
       peer.info.agent_name = msg.agent;
       peer.info.public_endpoint = msg.p2p_address;
       peer.chain.chain_id = msg.chain_id;
 
-      if (handshake_sent) {
-         return next_state<connected_state>();
-      } else {
-         return {};
-      }
-   }
-
-   next_states<connected_state>
-   handshaking_state::on(const hello_sent_event&) {
-      handshake_sent = true;
-
-      if (handshake_received) {
-         return next_state<connected_state>();
-      } else {
-         return {};
-      }
-   }
-
-   void
-   handshaking_state::on(const hello_failed_event&, session& peer) {
-      send_hello(peer);
+      return next_state<connected_state>();
    }
 
    next_states<disconnected_state>
@@ -117,18 +80,16 @@ namespace base {
       auto msg = std::make_shared<net_message>(status_message{
       });
 
-      peer.conn->enqueue(msg, [msg](const fc::exception_ptr&) {
-         // this lambda just holds a ref to the shared_ptr<net_message>
-      });
+      peer.conn->enqueue(msg);
 
       status_timer.emplace(peer.ios, std::chrono::seconds(5));
       session_wptr weak_peer = peer.shared_from_this();
       status_timer->async_wait([weak_peer](const error_code& ec) {
-         if (weak_peer.expired() || ec == boost::asio::error::operation_aborted) {
+         auto peer = weak_peer.lock();
+         if (!peer || ec == boost::asio::error::operation_aborted) {
             return;
          }
 
-         auto peer = weak_peer.lock();
          peer->post(status_timer_event());
       });
    }
@@ -257,18 +218,50 @@ namespace broadcast {
 namespace receiver {
 
    next_states<subscribed_state>
-   idle_state::on(const status_message& msg) {
-      // determine if this is an interesting peer and subscribe to them
-      return next_state<subscribed_state>();
+   idle_state::on(const status_message& msg, const base::connected_state&, const session& peer) {
+      auto local_lib = peer.shared.local_chain.last_irreversible_block_number;
+      auto peer_lib = peer.chain.last_irreversible_block_number;
+
+      // if our local LIB is behind OR they have more blocks built on top of the local LIB
+      // then we should subscribe
+      if (local_lib <= peer_lib) {
+         return next_state<subscribed_state>();
+      }
+
+      return {};
    }
 
-   void subscribed_state::enter(base::connected_state& connected, const session& peer) {
-      // send a subscribe
+   void subscribed_state::enter(const base::connected_state&, session& peer) {
+      peer.conn->enqueue(subscribe_message{});
    }
 
-   void subscribed_state::exit(base::connected_state& connected, const session& peer) {
-      // send unsubscribe
+   next_states<delay_state>
+   subscribed_state::on(const subscription_refused_message& msg ) {
+      return next_state<delay_state>();
    }
 
+
+   void subscribed_state::exit(const base::connected_state&, session& peer) {
+      peer.conn->enqueue(unsubscribe_message{});
+   }
+
+   void delay_state::enter(const base::connected_state&, session& peer) {
+      delay_timer.emplace(peer.ios, std::chrono::seconds(5));
+      session_wptr weak_peer = peer.shared_from_this();
+      delay_timer->async_wait([weak_peer](const error_code& ec) {
+         auto peer = weak_peer.lock();
+         if (!peer || ec == boost::asio::error::operation_aborted) {
+            return;
+         }
+
+         peer->post(delay_timer_event());
+      });
+   }
+
+   next_states<idle_state>
+   delay_state::on(const delay_timer_event&) {
+      delay_timer.reset();
+      return next_state<idle_state>();
+   }
 }
 }} // namespace eosio::net_v2

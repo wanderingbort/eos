@@ -15,20 +15,18 @@
 
 #include <memory>
 
+using boost::asio::ip::tcp;
+using boost::asio::ip::address_v4;
+using boost::asio::ip::address_v6;
+using boost::asio::ip::host_name;
+using boost::asio::io_service;
+using boost::asio::steady_timer;
+using boost::signals2::signal;
+using boost::system::error_code;
+using fc::message_buffer;
+using namespace std;
 
 namespace eosio { namespace net_v2 {
-
-   using boost::asio::ip::tcp;
-   using boost::asio::ip::address_v4;
-   using boost::asio::ip::address_v6;
-   using boost::asio::ip::host_name;
-   using boost::asio::io_service;
-   using boost::asio::steady_timer;
-   using boost::signals2::signal;
-   using boost::system::error_code;
-   using fc::message_buffer;
-   using namespace std;
-
 
    FC_DECLARE_EXCEPTION(net_v2_connection_exception, 0xA0000, "Connection Error");
    FC_DECLARE_DERIVED_EXCEPTION(net_v2_boost_error, net_v2_connection_exception, 0xA0001, "Boost returned an error code from a system call");
@@ -40,11 +38,7 @@ namespace eosio { namespace net_v2 {
       return FC_MAKE_EXCEPTION_PTR(net_v2_boost_error, "${message}", ("message", err.message()));
    }
 
-   template<typename ...Results>
-   using result_signal_type = signal<void(const fc::exception_ptr& , Results...)>;
-
-   template<typename ...Results>
-   using then_type = const typename result_signal_type<Results...>::slot_type&;
+   using then_type = const signal<void()>::slot_type&;
 
    using error_signal = signal<void(const fc::exception_ptr&)>;
 
@@ -101,8 +95,32 @@ namespace eosio { namespace net_v2 {
 
          error_signal on_error;
 
-         bool enqueue( const net_message_ptr& msg, then_type<> then );
-         bool enqueue( const data_buffer_ptr& raw, then_type<> then );
+
+         template<typename Type, typename Functor>
+         bool enqueue(const Type& entry, Functor&& then) {
+            if (!socket) {
+               return false;
+            }
+
+            queued_writes.emplace_back(entry, std::forward<Functor>(then));
+            if (queued_writes.size() == 1) {
+               write_next(shared_from_this());
+            }
+            return true;
+         }
+
+         template<typename Type>
+         bool enqueue(const Type& entry) {
+            if (!socket) {
+               return false;
+            }
+
+            queued_writes.emplace_back(entry, fc::optional<std::decay_t<then_type>>());
+            if (queued_writes.size() == 1) {
+               write_next(shared_from_this());
+            }
+            return true;
+         }
 
          string                      endpoint;
          fc::optional<tcp::endpoint> resolved_endpoint;
@@ -135,7 +153,7 @@ namespace eosio { namespace net_v2 {
          socket_ptr                  socket;
 
          using payload_type = fc::static_variant<net_message_ptr, data_buffer_ptr>;
-         using queued_write = std::tuple<payload_type, std::decay_t<then_type<>>>;
+         using queued_write = std::tuple<payload_type, fc::optional<std::decay_t<then_type>>>;
 
          std::deque<queued_write>      queued_writes;
          message_buffer_type           queued_reads;

@@ -180,22 +180,6 @@ namespace eosio { namespace net_v2 {
       set_retry();
    }
 
-   bool connection::enqueue(const net_message_ptr& msg, then_type<> then) {
-      queued_writes.emplace_back(msg, then);
-      if (queued_writes.size() == 1) {
-         write_next(shared_from_this());
-      }
-      return true;
-   }
-
-   bool connection::enqueue(const std::shared_ptr<bytes>& raw, then_type<> then) {
-      queued_writes.emplace_back(raw, then);
-      if (queued_writes.size() == 1) {
-         write_next(shared_from_this());
-      }
-      return true;
-   }
-
    void connection::write_next(const connection_ptr& c) {
       if (c->queued_writes.empty() || !c->socket) {
          return;
@@ -212,19 +196,19 @@ namespace eosio { namespace net_v2 {
 
       connection_wptr weak_c = c;
       async_write(*c->socket, write_buffers, [weak_c, header_ptr, data_ptr](const error_code& err, size_t) {
-         if (weak_c.expired()) {
+         auto c = weak_c.lock();
+         if (!c) {
             return;
          }
 
-         auto c = weak_c.lock();
-         const auto& entry = c->queued_writes.front();
          if (err) {
-            std::get<1>(entry)(wrap_boost_err(err));
+            c->handle_error();
          } else {
-            std::get<1>(entry)(nullptr);
+            const auto& entry = c->queued_writes.front();
+            std::get<1>(entry)();
+            c->queued_writes.pop_front();
+            connection::write_next(c);
          }
-         c->queued_writes.pop_front();
-         connection::write_next(c);
       });
    }
 

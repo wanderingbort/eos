@@ -76,6 +76,9 @@ namespace eosio { namespace net_v2 {
    struct unsubscribe_message {
    };
 
+   struct subscription_refused_message {
+   };
+
    struct block_received_message {
       block_id_type       block_id;
    };
@@ -89,6 +92,7 @@ namespace eosio { namespace net_v2 {
                                       status_message,
                                       subscribe_message,
                                       unsubscribe_message,
+                                      subscription_refused_message,
                                       block_received_message,
                                       transaction_received_message,
                                       signed_block,
@@ -106,5 +110,6 @@ FC_REFLECT( eosio::net_v2::goodbye_message, (reason)(node_id) )
 FC_REFLECT( eosio::net_v2::status_message, (last_irreversible_block_number)(head_block_id))
 FC_REFLECT( eosio::net_v2::subscribe_message, BOOST_PP_SEQ_NIL )
 FC_REFLECT( eosio::net_v2::unsubscribe_message, BOOST_PP_SEQ_NIL )
+FC_REFLECT( eosio::net_v2::subscription_refused_message, BOOST_PP_SEQ_NIL )
 FC_REFLECT( eosio::net_v2::block_received_message, (block_id))
 FC_REFLECT( eosio::net_v2::transaction_received_message, (transaction_id))

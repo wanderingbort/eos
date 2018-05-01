@@ -208,7 +208,12 @@ namespace eosio { namespace net_v2 {
           * receiving real-time messages
           */
          struct peer_behind_state {
-            void on(const sent_block_event& event, const desynced_state& parent, base::connected_state& connected, const session& peer);
+            block_id_type last_block_sent;
+
+            void enter(const desynced_state& parent, base::connected_state& connected, session& peer)
+            void on(const sent_block_event& event, const desynced_state& parent, base::connected_state& connected, session& peer);
+
+            void send_next_best_block(session& peer);
          };
 
          /**
@@ -241,17 +246,27 @@ namespace eosio { namespace net_v2 {
    }
 
    namespace receiver {
-      struct subscribed_state;
+      struct subscribed_state; struct delay_state;
       struct idle_state {
-         auto on(const status_message& msg) -> next_states<subscribed_state> ;
+         auto on(const status_message& msg, const base::connected_state&, const session& peer) -> next_states<subscribed_state> ;
       };
 
       /**
        * Subscribed state: this peer is connected and subscribed.
        */
       struct subscribed_state {
-         void enter(base::connected_state& connected, const session& peer_session);
-         void exit(base::connected_state& connected, const session& peer_session);
+         void enter(const base::connected_state& connected, session& peer_session);
+         auto on(const subscription_refused_message& msg ) -> next_states<delay_state>;
+         void exit(const base::connected_state& connected, session& peer_session);
+      };
+
+      struct delay_state {
+         struct delay_timer_event{};
+
+         void enter(const base::connected_state& connected, session& peer_session);
+         auto on(const delay_timer_event&) -> next_states<idle_state>;
+
+         optional<steady_timer> delay_timer;
       };
 
       using state_machine_type = machine<idle_state, subscribed_state>;
@@ -277,11 +292,7 @@ namespace eosio { namespace net_v2 {
 
          void enter(session& peer);
          auto on(const hello_message& msg, session& session) -> next_states<connected_state>;
-         auto on(const hello_sent_event& msg) -> next_states<connected_state>;
-         auto on(const hello_failed_event& msg, session& peer) -> void;
          auto on(const connection_lost_event& e) -> next_states<disconnected_state>;
-
-         void send_hello(session& peer);
       };
 
       struct connected_state : public container<connected_state> {
