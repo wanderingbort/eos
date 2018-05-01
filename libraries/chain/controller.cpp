@@ -348,6 +348,7 @@ struct controller_impl {
          auto new_bsp = fork_db.add( pending->_pending_block_state );
          head = fork_db.head();
          FC_ASSERT( new_bsp == head, "committed block did not become the new head in fork database" );
+         emit( self.accepted_block_header, new_bsp );
       }
 
       //ilog((fc::json::to_pretty_string(*pending->_pending_block_state->block)));

@@ -256,7 +256,7 @@ void chain_plugin::plugin_initialize(const variables_map& options) {
       my->applied_transaction_channel.publish(trace);
    });
 
-   my->chain->accepted_confirmation.connect([this](const header_confirmation& conf){
+   my->chain->accepted_confirmation.connect([this](const header_confirmation_ptr& conf){
       my->accepted_confirmation_channel.publish(conf);
    });
 }

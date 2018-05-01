@@ -333,12 +333,15 @@ namespace eosio { namespace net_v2 {
       }
 
       // TODO: see if we can infer this in slim
-      shared.local_chain.last_irreversible_block_number = app().get_method<methods::get_last_irreversible_block_number>()();
+      shared.local_chain.last_irreversible_block_number = state->dpos_last_irreversible_blocknum;
       shared.local_chain.head_block_id = state->block->id();
+   }
 
-      for (auto session: sessions) {
-         session->post(broadcast_block_event{itr->id, *itr});
-      }
+   void plugin_impl::on_applied_block_header(const block_state_ptr& state) {
+      on_accepted_block_header(state);
 
+      // TODO: see if we can infer this in slim
+      shared.local_chain.last_irreversible_block_number = state->dpos_last_irreversible_blocknum;
+      shared.local_chain.head_block_id = state->block->id();
    }
 } }

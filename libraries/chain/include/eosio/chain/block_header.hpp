@@ -40,6 +40,8 @@ namespace eosio { namespace chain {
       signature_type  producer_signature;
    };
 
+   using header_confirmation_ptr = std::shared_ptr<header_confirmation>;
+
 } } /// namespace eosio::chain
 
 FC_REFLECT(eosio::chain::block_header, (previous)(timestamp)

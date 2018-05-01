@@ -158,7 +158,7 @@ namespace eosio { namespace chain {
          signal<void(const block_state_ptr&)>          irreversible_block;
          signal<void(const transaction_metadata_ptr&)> accepted_transaction;
          signal<void(const transaction_trace_ptr&)>    applied_transaction;
-         signal<void(const header_confirmation&)>      accepted_confirmation;
+         signal<void(const header_confirmation_ptr&)>  accepted_confirmation;
 
          /*
          signal<void()>                                  pre_apply_block;

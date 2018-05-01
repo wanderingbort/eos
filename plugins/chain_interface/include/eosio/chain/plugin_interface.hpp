@@ -24,7 +24,11 @@ namespace eosio { namespace chain { namespace plugin_interface {
       using irreversible_block     = channel_decl<struct irreversible_block_tag,    block_state_ptr>;
       using accepted_transaction   = channel_decl<struct accepted_transaction_tag,  transaction_metadata_ptr>;
       using applied_transaction    = channel_decl<struct applied_transaction_tag,   transaction_trace_ptr>;
-      using accepted_confirmation  = channel_decl<struct accepted_confirmation_tag, header_confirmation>;
+      using accepted_confirmation  = channel_decl<struct accepted_confirmation_tag, header_confirmation_ptr>;
+
+      using incoming_block         = channel_decl<struct incoming_block_tag,        signed_block_ptr>;
+      using incoming_transaction   = channel_decl<struct incoming_transaction_tag,  packed_transaction_ptr>;
+      using incoming_confirmation  = channel_decl<struct incoming_confirmation_tag, header_confirmation_ptr>;
    }
 
    namespace methods {
