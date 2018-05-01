@@ -57,6 +57,7 @@ namespace eosio { namespace net_v2 {
       const session_ptr&  create_session( const connection_ptr& conn );
       void post( const session_ptr& session, const net_message_ptr& msg, const lazy_data_buffer_ptr& lazy_buffer);
       void on_accepted_block_header(const block_state_ptr& trace);
+      void on_accepted_block(const block_state_ptr& state);
 
       int16_t                       network_version = 0;
       shared_state                  shared;
@@ -68,6 +69,7 @@ namespace eosio { namespace net_v2 {
       set<string>                   declared_peers;
 
       optional<channels::accepted_block_header::channel_type::handle> accepted_block_header_subscription;
+      optional<channels::accepted_block::channel_type::handle>        accepted_block_subscription;
 
       fc::logger                    logger;
    };
@@ -161,6 +163,10 @@ namespace eosio { namespace net_v2 {
 
       my->accepted_block_header_subscription = app().get_channel<channels::accepted_block_header>().subscribe([this](const block_state_ptr& trace){
          my->on_accepted_block_header(trace);
+      });
+
+      my->accepted_block_subscription = app().get_channel<channels::accepted_block>().subscribe([this](const block_state_ptr& trace){
+         my->on_accepted_block(trace);
       });
 
       for( auto seed_node : my->declared_peers ) {
@@ -337,10 +343,7 @@ namespace eosio { namespace net_v2 {
       shared.local_chain.head_block_id = state->block->id();
    }
 
-   void plugin_impl::on_applied_block_header(const block_state_ptr& state) {
-      on_accepted_block_header(state);
-
-      // TODO: see if we can infer this in slim
+   void plugin_impl::on_accepted_block(const block_state_ptr& state) {
       shared.local_chain.last_irreversible_block_number = state->dpos_last_irreversible_blocknum;
       shared.local_chain.head_block_id = state->block->id();
    }
