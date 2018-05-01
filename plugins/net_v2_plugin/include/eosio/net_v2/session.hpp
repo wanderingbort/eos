@@ -42,6 +42,19 @@ namespace eosio { namespace net_v2 {
       packed_transacton_ptr trx;
       bytes_ptr             raw;
       dynamic_bitset        session_acks;
+
+      bytes_ptr get_raw() {
+         if (!raw) {
+            // this is also potentially wasteful if this was a block from the net code...
+            raw = std::make_shared<bytes>();
+            auto size = fc::raw::pack_size(*trx);
+            raw->resize(size);
+            fc::datastream<char*> ds(raw->data(), raw->size());
+            fc::raw::pack(ds, *trx);
+         }
+
+         return raw;
+      }
    };
 
    struct by_id;
@@ -67,6 +80,19 @@ namespace eosio { namespace net_v2 {
       signed_block_ptr blk;
       bytes_ptr        raw;
       dynamic_bitset   session_acks;
+
+      bytes_ptr get_raw() {
+         if (!raw) {
+            // this is also potentially wasteful if this was a block from the net code...
+            raw = std::make_shared<bytes>();
+            auto size = fc::raw::pack_size(*blk);
+            raw->resize(size);
+            fc::datastream<char*> ds(raw->data(), raw->size());
+            fc::raw::pack(ds, *blk);
+         }
+
+         return raw;
+      }
    };
 
    using block_cache = multi_index_container<

@@ -319,28 +319,17 @@ namespace eosio { namespace net_v2 {
       auto itr = shared.blk_cache.get<by_id>().find(state->block->id());
       if (itr == shared.blk_cache.end()) {
          auto block_ptr = state->block;
-         auto data_buffer = std::make_shared<bytes>();
-
-         // this is also potentially wasteful if this was a block from the net code...
-         auto size = fc::raw::pack_size(*block_ptr);
-         data_buffer->resize(size);
-         fc::datastream<char*> ds(data_buffer->data(), data_buffer->size());
-         fc::raw::pack(ds, *block_ptr);
 
          block_cache_object new_obj = {
             .id = block_ptr->id(),
             .prev = block_ptr->previous,
             .blk = block_ptr,
-            .raw = data_buffer,
+            .raw = nullptr,
             .session_acks = dynamic_bitset()
          };
          auto res = shared.blk_cache.insert(new_obj);
          itr = res.first;
       }
-
-      // TODO: see if we can infer this in slim
-      shared.local_chain.last_irreversible_block_number = state->dpos_last_irreversible_blocknum;
-      shared.local_chain.head_block_id = state->block->id();
    }
 
    void plugin_impl::on_accepted_block(const block_state_ptr& state) {
