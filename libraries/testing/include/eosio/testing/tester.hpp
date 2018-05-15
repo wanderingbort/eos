@@ -5,7 +5,6 @@
 #include <eosio/chain/account_object.hpp>
 #include <eosio/chain/abi_serializer.hpp>
 #include <fc/io/json.hpp>
-#include <boost/algorithm/string/predicate.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <iosfwd>
@@ -61,6 +60,8 @@ namespace eosio { namespace testing {
 
    void copy_row(const chain::key_value_object& obj, vector<char>& data);
 
+   bool expect_assert_message(const fc::exception& ex, string expected);
+
    /**
     *  @class tester
     *  @brief provides utility function to simplify the creation of unit tests
@@ -71,7 +72,9 @@ namespace eosio { namespace testing {
 
          static const uint32_t DEFAULT_EXPIRATION_DELTA = 6;
 
-         void              init(bool push_genesis = true, controller::config::runtime_limits limits = controller::config::runtime_limits());
+         static const uint32_t DEFAULT_BILLED_CPU_TIME_US = 2000;
+
+         void              init(bool push_genesis = true);
          void              init(controller::config config);
 
          void              close();
@@ -84,22 +87,45 @@ namespace eosio { namespace testing {
          void                 produce_blocks_until_end_of_round();
          signed_block_ptr     push_block(signed_block_ptr b);
 
-         transaction_trace_ptr    push_transaction( packed_transaction& trx, uint32_t skip_flag = 0/*skip_nothing */, fc::time_point deadline = fc::time_point::maximum() );
-         transaction_trace_ptr    push_transaction( signed_transaction& trx, uint32_t skip_flag = 0/*skip_nothing*/, fc::time_point deadline = fc::time_point::maximum() );
+         transaction_trace_ptr    push_transaction( packed_transaction& trx, fc::time_point deadline = fc::time_point::maximum(), uint32_t billed_cpu_time_us = DEFAULT_BILLED_CPU_TIME_US );
+         transaction_trace_ptr    push_transaction( signed_transaction& trx, fc::time_point deadline = fc::time_point::maximum(), uint32_t billed_cpu_time_us = DEFAULT_BILLED_CPU_TIME_US );
          action_result            push_action(action&& cert_act, uint64_t authorizer); // TODO/QUESTION: Is this needed?
 
-         transaction_trace_ptr    push_action( const account_name& code, const action_name& acttype, const account_name& actor, const variant_object& data, uint32_t expiration = DEFAULT_EXPIRATION_DELTA, uint32_t delay_sec = 0 );
-         transaction_trace_ptr    push_action( const account_name& code, const action_name& acttype, const vector<account_name>& actors, const variant_object& data, uint32_t expiration = DEFAULT_EXPIRATION_DELTA, uint32_t delay_sec = 0 );
-         transaction_trace_ptr    push_action( const account_name& code, const action_name& acttype, const vector<permission_level>& auths, const variant_object& data, uint32_t expiration = DEFAULT_EXPIRATION_DELTA, uint32_t delay_sec = 0 );
+         transaction_trace_ptr    push_action( const account_name& code,
+                                               const action_name& acttype,
+                                               const account_name& actor,
+                                               const variant_object& data,
+                                               uint32_t expiration = DEFAULT_EXPIRATION_DELTA,
+                                               uint32_t delay_sec = 0 );
+         transaction_trace_ptr    push_action( const account_name& code,
+                                               const action_name& acttype,
+                                               const vector<account_name>& actors,
+                                               const variant_object& data,
+                                               uint32_t expiration = DEFAULT_EXPIRATION_DELTA,
+                                               uint32_t delay_sec = 0 );
+         transaction_trace_ptr    push_action( const account_name& code,
+                                               const action_name& acttype,
+                                               const vector<permission_level>& auths,
+                                               const variant_object& data,
+                                               uint32_t expiration = DEFAULT_EXPIRATION_DELTA,
+                                               uint32_t delay_sec = 0 );
+
+
+         action get_action( account_name code, action_name acttype, vector<permission_level> auths,
+                                         const variant_object& data )const;
 
          void                 set_transaction_headers(signed_transaction& trx,
                                                       uint32_t expiration = DEFAULT_EXPIRATION_DELTA,
                                                       uint32_t delay_sec = 0)const;
 
-         vector<transaction_trace_ptr>  create_accounts( vector<account_name> names, bool multisig = false ) {
+         vector<transaction_trace_ptr>  create_accounts( vector<account_name> names,
+                                                         bool multisig = false,
+                                                         bool include_code = true
+                                                       )
+         {
             vector<transaction_trace_ptr> traces;
             traces.reserve(names.size());
-            for( auto n : names ) traces.emplace_back(create_account(n, config::system_account_name, multisig ));
+            for( auto n : names ) traces.emplace_back( create_account( n, config::system_account_name, multisig, include_code ) );
             return traces;
          }
 
@@ -116,7 +142,11 @@ namespace eosio { namespace testing {
          void delete_authority( account_name account, permission_name perm,  const vector<permission_level>& auths, const vector<private_key_type>& keys );
          void delete_authority( account_name account, permission_name perm );
 
-         transaction_trace_ptr create_account( account_name name, account_name creator = config::system_account_name, bool multisig = false );
+         transaction_trace_ptr create_account( account_name name,
+                                               account_name creator = config::system_account_name,
+                                               bool multisig = false,
+                                               bool include_code = true
+                                             );
 
          transaction_trace_ptr push_reqauth( account_name from, const vector<permission_level>& auths, const vector<private_key_type>& keys );
          transaction_trace_ptr push_reqauth(account_name from, string role, bool multi_sig = false);
@@ -151,9 +181,9 @@ namespace eosio { namespace testing {
             return get_private_key<KeyType>( keyname, role ).get_public_key();
          }
 
-         void              set_code( account_name name, const char* wast );
-         void              set_code( account_name name, const vector<uint8_t> wasm );
-         void              set_abi( account_name name, const char* abi_json );
+         void              set_code( account_name name, const char* wast, const private_key_type* signer = nullptr );
+         void              set_code( account_name name, const vector<uint8_t> wasm, const private_key_type* signer = nullptr  );
+         void              set_abi( account_name name, const char* abi_json, const private_key_type* signer = nullptr );
 
          bool                          chain_has_transaction( const transaction_id_type& txid ) const;
          const transaction_receipt&    get_transaction_receipt( const transaction_id_type& txid ) const;
@@ -177,15 +207,15 @@ namespace eosio { namespace testing {
          static action_result error(const string& msg) { return msg; }
 
          auto get_resolver() {
-            return [this](const account_name &name) -> optional<abi_serializer> {
+            return [this]( const account_name& name ) -> optional<abi_serializer> {
                try {
-                  const auto &accnt = control->db().get<account_object, by_name>(name);
+                  const auto& accnt = control->db().get<account_object, by_name>( name );
                   abi_def abi;
-                  if (abi_serializer::to_abi(accnt.abi, abi)) {
-                     return abi_serializer(abi);
+                  if( abi_serializer::to_abi( accnt.abi, abi )) {
+                     return abi_serializer( abi );
                   }
                   return optional<abi_serializer>();
-               } FC_RETHROW_EXCEPTIONS(error, "Failed to find or parse ABI for ${name}", ("name", name))
+               } FC_RETHROW_EXCEPTIONS( error, "Failed to find or parse ABI for ${name}", ("name", name))
             };
          }
 
@@ -218,6 +248,7 @@ namespace eosio { namespace testing {
 
       protected:
          signed_block_ptr _produce_block( fc::microseconds skip_time, bool skip_pending_trxs = false, uint32_t skip_flag = 0 );
+         void             _start_block(fc::time_point block_time);
 
       // Fields:
       protected:
@@ -229,15 +260,16 @@ namespace eosio { namespace testing {
       protected:
          controller::config                            cfg;
          map<transaction_id_type, transaction_receipt> chain_transactions;
+         map<account_name, block_id_type>              last_produced_block;
    };
 
    class tester : public base_tester {
    public:
-      tester(bool push_genesis, controller::config::runtime_limits limits = controller::config::runtime_limits()) {
-         init(push_genesis, limits);
+      tester(bool push_genesis) {
+         init(push_genesis);
       }
-      tester(controller::config::runtime_limits limits = controller::config::runtime_limits()) {
-         init(true, limits);
+      tester() {
+         init(true);
       }
 
       tester(controller::config config) {
@@ -266,15 +298,15 @@ namespace eosio { namespace testing {
             wdump((e.to_detail_string()));
          }
       }
-      validating_tester(controller::config::runtime_limits limits = controller::config::runtime_limits()) {
-         controller::config vcfg;
+      controller::config vcfg;
+
+      validating_tester() {
          vcfg.block_log_dir      = tempdir.path() / "vblocklog";
          vcfg.shared_memory_dir  = tempdir.path() / "vshared";
          vcfg.shared_memory_size = 1024*1024*8;
 
          vcfg.genesis.initial_timestamp = fc::time_point::from_iso_string("2020-01-01T00:00:00.000");
          vcfg.genesis.initial_key = get_public_key( config::system_account_name, "active" );
-         vcfg.limits = limits;
 
          for(int i = 0; i < boost::unit_test::framework::master_test_suite().argc; ++i) {
             if(boost::unit_test::framework::master_test_suite().argv[i] == std::string("--binaryen"))
@@ -283,19 +315,24 @@ namespace eosio { namespace testing {
                vcfg.wasm_runtime = chain::wasm_interface::vm_type::wavm;
          }
 
+
          validating_node = std::make_unique<controller>(vcfg);
          validating_node->startup();
-         init(true, limits);
+
+         init(true);
       }
 
+      /*
       validating_tester(controller::config config) {
          validating_node = std::make_unique<controller>(config);
          init(config);
       }
+      */
 
       signed_block_ptr produce_block( fc::microseconds skip_time = fc::milliseconds(config::block_interval_ms), uint32_t skip_flag = 0 /*skip_missed_block_penalty*/ )override {
          auto sb = _produce_block(skip_time, false, skip_flag | 2);
          validating_node->push_block( sb );
+
          return sb;
       }
 
@@ -303,54 +340,108 @@ namespace eosio { namespace testing {
          control->abort_block();
          auto sb = _produce_block(skip_time, true, skip_flag | 2);
          validating_node->push_block( sb );
+
+
+
          return sb;
       }
 
       bool validate() {
+
+
         auto hbh = control->head_block_state()->header;
         auto vn_hbh = validating_node->head_block_state()->header;
-        return control->head_block_id() == validating_node->head_block_id() &&
+        bool ok = control->head_block_id() == validating_node->head_block_id() &&
                hbh.previous == vn_hbh.previous &&
                hbh.timestamp == vn_hbh.timestamp &&
                hbh.transaction_mroot == vn_hbh.transaction_mroot &&
                hbh.action_mroot == vn_hbh.action_mroot &&
                hbh.producer == vn_hbh.producer;
+
+        validating_node.reset();
+        validating_node = std::make_unique<controller>(vcfg);
+        validating_node->startup();
+
+        return ok;
       }
 
       unique_ptr<controller>                  validating_node;
    };
 
    /**
-    * Utility predicate to check whether an FC_ASSERT message ends with a given string
+    * Utility predicate to check whether an fc::exception message is equivalent to a given string
     */
-   struct assert_message_ends_with {
-      assert_message_ends_with(string expected)
-         :expected(expected)
-      {}
+   struct fc_exception_message_is {
+      fc_exception_message_is( const string& msg )
+            : expected( msg ) {}
 
-      bool operator()( const fc::exception& ex ) {
-         auto message = ex.get_log().at(0).get_message();
-         return boost::algorithm::ends_with(message, expected);
-      }
+      bool operator()( const fc::exception& ex );
 
       string expected;
    };
 
-   /**
-    * Utility predicate to check whether an FC_ASSERT message contains a given string
-    */
-   struct assert_message_contains {
-      assert_message_contains(string expected)
-         :expected(expected)
-      {}
+  /**
+   * Utility predicate to check whether an fc::exception message starts with a given string
+   */
+  struct fc_exception_message_starts_with {
+     fc_exception_message_starts_with( const string& msg )
+           : expected( msg ) {}
 
-      bool operator()( const fc::exception& ex ) {
-         auto message = ex.get_log().at(0).get_message();
-         return boost::algorithm::contains(message, expected);
-      }
+     bool operator()( const fc::exception& ex );
 
-      string expected;
-   };
+     string expected;
+  };
 
+  /**
+   * Utility predicate to check whether an fc::assert_exception message is equivalent to a given string
+   */
+  struct fc_assert_exception_message_is {
+     fc_assert_exception_message_is( const string& msg )
+           : expected( msg ) {}
+
+     bool operator()( const fc::assert_exception& ex );
+
+     string expected;
+  };
+
+  /**
+   * Utility predicate to check whether an fc::assert_exception message starts with a given string
+   */
+  struct fc_assert_exception_message_starts_with {
+     fc_assert_exception_message_starts_with( const string& msg )
+           : expected( msg ) {}
+
+     bool operator()( const fc::assert_exception& ex );
+
+     string expected;
+  };
+
+  /**
+   * Utility predicate to check whether an eosio_assert message is equivalent to a given string
+   */
+  struct eosio_assert_message_is {
+     eosio_assert_message_is( const string& msg )
+           : expected( "assertion failed: " ) {
+        expected.append( msg );
+     }
+
+     bool operator()( const fc::assert_exception& ex );
+
+     string expected;
+  };
+
+  /**
+   * Utility predicate to check whether an eosio_assert message starts with a given string
+   */
+  struct eosio_assert_message_starts_with {
+     eosio_assert_message_starts_with( const string& msg )
+           : expected( "assertion failed: " ) {
+        expected.append( msg );
+     }
+
+     bool operator()( const fc::assert_exception& ex );
+
+     string expected;
+  };
 
 } } /// eosio::testing

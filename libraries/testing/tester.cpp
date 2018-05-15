@@ -1,4 +1,5 @@
 #include <boost/test/unit_test.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 #include <eosio/testing/tester.hpp>
 #include <eosio/chain/wast_to_wasm.hpp>
 #include <eosio/chain/eosio_contract.hpp>
@@ -7,6 +8,11 @@
 #include <eosio.bios/eosio.bios.abi.hpp>
 
 namespace eosio { namespace testing {
+
+   bool expect_assert_message(const fc::exception& ex, string expected) {
+      BOOST_TEST_MESSAGE("LOG : " << "expected: " << expected << ", actual: " << ex.get_log().at(0).get_message());
+      return (ex.get_log().at(0).get_message().find(expected) != std::string::npos);
+   }
 
    fc::variant_object filter_fields(const fc::variant_object& filter, const fc::variant_object& value) {
       fc::mutable_variant_object res;
@@ -26,14 +32,13 @@ namespace eosio { namespace testing {
      return control->head_block_id() == other.control->head_block_id();
    }
 
-   void base_tester::init(bool push_genesis, controller::config::runtime_limits limits) {
+   void base_tester::init(bool push_genesis) {
       cfg.block_log_dir      = tempdir.path() / "blocklog";
       cfg.shared_memory_dir  = tempdir.path() / "shared";
       cfg.shared_memory_size = 1024*1024*8;
 
       cfg.genesis.initial_timestamp = fc::time_point::from_iso_string("2020-01-01T00:00:00.000");
       cfg.genesis.initial_key = get_public_key( config::system_account_name, "active" );
-      cfg.limits = limits;
 
       for(int i = 0; i < boost::unit_test::framework::master_test_suite().argc; ++i) {
          if(boost::unit_test::framework::master_test_suite().argv[i] == std::string("--binaryen"))
@@ -72,17 +77,24 @@ namespace eosio { namespace testing {
           for( const auto& receipt : block_state->block->transactions ) {
               if( receipt.trx.contains<packed_transaction>() ) {
                   auto &pt = receipt.trx.get<packed_transaction>();
-                  chain_transactions.emplace(pt.get_transaction().id(), receipt);
+                  chain_transactions[pt.get_transaction().id()] = receipt;
               } else {
                   auto& id = receipt.trx.get<transaction_id_type>();
-                  chain_transactions.emplace(id, receipt);
+                  chain_transactions[id] = receipt;
               }
           }
       });
    }
 
    signed_block_ptr base_tester::push_block(signed_block_ptr b) {
+      control->abort_block();
       control->push_block(b);
+
+      auto itr = last_produced_block.find(b->producer);
+      if (itr == last_produced_block.end() || block_header::num_from_id(b->id()) > block_header::num_from_id(itr->second)) {
+         last_produced_block[b->producer] = b->id();
+      }
+
       return b;
    }
 
@@ -91,12 +103,8 @@ namespace eosio { namespace testing {
       auto head_time = control->head_block_time();
       auto next_time = head_time + skip_time;
 
-      if( !control->pending_block_state() ) {
-         control->start_block( next_time );
-      } else if( control->pending_block_state()->header.timestamp != next_time ) {
-         wlog( "aborting current pending block and starting a new one" );
-         control->abort_block();
-         control->start_block( next_time );
+      if( !control->pending_block_state() || control->pending_block_state()->header.timestamp != next_time ) {
+         _start_block( next_time );
       }
 
       auto producer = control->head_block_state()->get_scheduled_producer(next_time);
@@ -111,11 +119,26 @@ namespace eosio { namespace testing {
       }
 
       if( !skip_pending_trxs ) {
-            //wlog( "pushing all input transactions in waiting queue" );
-            while( control->push_next_unapplied_transaction() );
-            //wlog( "pushing all available deferred transactions" );
-            while( control->push_next_scheduled_transaction() );
+         auto unapplied_trxs = control->get_unapplied_transactions();
+         for (const auto& trx : unapplied_trxs ) {
+            auto trace = control->push_transaction(trx, fc::time_point::maximum());
+            if(trace->except) {
+               trace->except->dynamic_rethrow_exception();
+            }
+         }
+
+         vector<transaction_id_type> scheduled_trxs;
+         while( (scheduled_trxs = control->get_scheduled_transactions() ).size() > 0 ) {
+            for (const auto& trx : scheduled_trxs ) {
+               auto trace = control->push_scheduled_transaction(trx, fc::time_point::maximum());
+               if(trace->except) {
+                  trace->except->dynamic_rethrow_exception();
+               }
+            }
+         }
       }
+
+
 
       control->finalize_block();
       control->sign_block( [&]( digest_type d ) {
@@ -124,9 +147,26 @@ namespace eosio { namespace testing {
 
       control->commit_block();
       control->log_irreversible_blocks();
+      last_produced_block[control->head_block_state()->header.producer] = control->head_block_state()->id;
 
+      _start_block( next_time + fc::microseconds(config::block_interval_us));
       return control->head_block_state()->block;
    }
+
+   void base_tester::_start_block(fc::time_point block_time) {
+      auto head_block_number = control->head_block_num();
+      auto producer = control->head_block_state()->get_scheduled_producer(block_time);
+
+      auto last_produced_block_num = control->last_irreversible_block_num();
+      auto itr = last_produced_block.find(producer.producer_name);
+      if (itr != last_produced_block.end()) {
+         last_produced_block_num = block_header::num_from_id(itr->second);
+      }
+
+      control->abort_block();
+      control->start_block( block_time, head_block_number - last_produced_block_num );
+   }
+
 
    void base_tester::produce_blocks( uint32_t n, bool empty ) {
       if( empty ) {
@@ -151,21 +191,42 @@ namespace eosio { namespace testing {
      trx.set_reference_block( control->head_block_id() );
 
      trx.max_net_usage_words = 0; // No limit
-     trx.max_kcpu_usage = 0; // No limit
+     trx.max_cpu_usage_ms = 0; // No limit
      trx.delay_sec = delay_sec;
   }
 
 
-   transaction_trace_ptr base_tester::create_account( account_name a, account_name creator, bool multisig ) {
+   transaction_trace_ptr base_tester::create_account( account_name a, account_name creator, bool multisig, bool include_code ) {
       signed_transaction trx;
       set_transaction_headers(trx);
 
       authority owner_auth;
-      if (multisig) {
+      if( multisig ) {
          // multisig between account's owner key and creators active permission
          owner_auth = authority(2, {key_weight{get_public_key( a, "owner" ), 1}}, {permission_level_weight{{creator, config::active_name}, 1}});
       } else {
          owner_auth =  authority( get_public_key( a, "owner" ) );
+      }
+
+      authority active_auth( get_public_key( a, "active" ) );
+
+      auto sort_permissions = []( authority& auth ) {
+         std::sort( auth.accounts.begin(), auth.accounts.end(),
+                    []( const permission_level_weight& lhs, const permission_level_weight& rhs ) {
+                        return lhs.permission < rhs.permission;
+                    }
+                  );
+      };
+
+      if( include_code ) {
+         FC_ASSERT( owner_auth.threshold <= std::numeric_limits<weight_type>::max(), "threshold is too high" );
+         FC_ASSERT( active_auth.threshold <= std::numeric_limits<weight_type>::max(), "threshold is too high" );
+         owner_auth.accounts.push_back( permission_level_weight{ {a, config::eosio_code_name},
+                                                                 static_cast<weight_type>(owner_auth.threshold) } );
+         sort_permissions(owner_auth);
+         active_auth.accounts.push_back( permission_level_weight{ {a, config::eosio_code_name},
+                                                                  static_cast<weight_type>(active_auth.threshold) } );
+         sort_permissions(active_auth);
       }
 
       trx.actions.emplace_back( vector<permission_level>{{creator,config::active_name}},
@@ -173,8 +234,7 @@ namespace eosio { namespace testing {
                                    .creator  = creator,
                                    .name     = a,
                                    .owner    = owner_auth,
-                                   .active   = authority( get_public_key( a, "active" ) ),
-                                   .recovery = authority( get_public_key( a, "recovery" ) ),
+                                   .active   = active_auth,
                                 });
 
       set_transaction_headers(trx);
@@ -182,28 +242,39 @@ namespace eosio { namespace testing {
       return push_transaction( trx );
    }
 
-   transaction_trace_ptr base_tester::push_transaction( packed_transaction& trx, uint32_t skip_flag, fc::time_point deadline ) { try {
+   transaction_trace_ptr base_tester::push_transaction( packed_transaction& trx,
+                                                        fc::time_point deadline,
+                                                        uint32_t billed_cpu_time_us
+                                                      )
+   { try {
       if( !control->pending_block_state() )
-         control->start_block();
-      auto r = control->sync_push( std::make_shared<transaction_metadata>(trx), deadline );
-      if( r->hard_except_ptr ) std::rethrow_exception( r->hard_except_ptr );
-      if( r->soft_except_ptr ) std::rethrow_exception( r->soft_except_ptr );
-      if( r->hard_except)  throw *r->hard_except;
-      if( r->soft_except ) throw *r->soft_except;
+         _start_block(control->head_block_time() + fc::microseconds(config::block_interval_us));
+      auto r = control->push_transaction( std::make_shared<transaction_metadata>(trx), deadline, billed_cpu_time_us );
+      if( r->except_ptr ) std::rethrow_exception( r->except_ptr );
+      if( r->except ) throw *r->except;
       return r;
    } FC_CAPTURE_AND_RETHROW( (transaction_header(trx.get_transaction())) ) }
 
-   transaction_trace_ptr base_tester::push_transaction( signed_transaction& trx, uint32_t skip_flag, fc::time_point deadline ) { try {
+   transaction_trace_ptr base_tester::push_transaction( signed_transaction& trx,
+                                                        fc::time_point deadline,
+                                                        uint32_t billed_cpu_time_us
+                                                      )
+   { try {
       if( !control->pending_block_state() )
-         control->start_block();
-      auto r = control->sync_push( std::make_shared<transaction_metadata>(trx), deadline );
-      if( r->hard_except_ptr ) std::rethrow_exception( r->hard_except_ptr );
-      if( r->soft_except_ptr ) std::rethrow_exception( r->soft_except_ptr );
-      if( r->hard_except)  throw *r->hard_except;
-      if( r->soft_except ) throw *r->soft_except;
-      return r;
-   } FC_CAPTURE_AND_RETHROW( (transaction_header(trx)) ) }
+         _start_block(control->head_block_time() + fc::microseconds(config::block_interval_us));
+      auto c = packed_transaction::none;
 
+      if( fc::raw::pack_size(trx) > 1000 )
+      {
+         wdump((fc::raw::pack_size(trx)));
+         c = packed_transaction::zlib;
+      }
+
+      auto r = control->push_transaction( std::make_shared<transaction_metadata>(trx,c), deadline, billed_cpu_time_us );
+      if( r->except_ptr ) std::rethrow_exception( r->except_ptr );
+      if( r->except)  throw *r->except;
+      return r;
+   } FC_CAPTURE_AND_RETHROW( (transaction_header(trx))(billed_cpu_time_us) ) }
 
    typename base_tester::action_result base_tester::push_action(action&& act, uint64_t authorizer) {
       signed_transaction trx;
@@ -218,7 +289,9 @@ namespace eosio { namespace testing {
       try {
          push_transaction(trx);
       } catch (const fc::exception& ex) {
-         return error(ex.top_message());
+         edump((ex.to_detail_string()));
+         return error(ex.top_message()); // top_message() is assumed by many tests; otherwise they fail
+         //return error(ex.to_detail_string());
       }
       produce_block();
       BOOST_REQUIRE_EQUAL(true, chain_has_transaction(trx.id()));
@@ -233,11 +306,11 @@ namespace eosio { namespace testing {
                                                    uint32_t delay_sec
                                                  )
 
-   { try {
+   {
       vector<permission_level> auths;
-      auths.push_back(permission_level{actor, config::active_name});
-      return push_action(code, acttype, auths, data, expiration, delay_sec);
-   } FC_CAPTURE_AND_RETHROW( (code)(acttype)(actor)(data)(expiration) ) }
+      auths.push_back( permission_level{actor, config::active_name} );
+      return push_action( code, acttype, auths, data, expiration, delay_sec );
+   }
 
    transaction_trace_ptr base_tester::push_action( const account_name& code,
                                                    const action_name& acttype,
@@ -247,13 +320,13 @@ namespace eosio { namespace testing {
                                                    uint32_t delay_sec
                                                  )
 
-   { try {
+   {
       vector<permission_level> auths;
       for (const auto& actor : actors) {
-         auths.push_back(permission_level{actor, config::active_name});
+         auths.push_back( permission_level{actor, config::active_name} );
       }
-      return push_action(code, acttype, auths, data, expiration, delay_sec);
-   } FC_CAPTURE_AND_RETHROW( (code)(acttype)(actors)(data)(expiration) ) }
+      return push_action( code, acttype, auths, data, expiration, delay_sec );
+   }
 
    transaction_trace_ptr base_tester::push_action( const account_name& code,
                                                    const action_name& acttype,
@@ -264,10 +337,22 @@ namespace eosio { namespace testing {
                                                  )
 
    { try {
-      const auto& acnt = control->db().get<account_object,by_name>(code);
+      signed_transaction trx;
+      trx.actions.emplace_back( get_action( code, acttype, auths, data ) );
+      set_transaction_headers( trx, expiration, delay_sec );
+      for (const auto& auth : auths) {
+         trx.sign( get_private_key( auth.actor, auth.permission.to_string() ), chain_id_type() );
+      }
+
+      return push_transaction( trx );
+   } FC_CAPTURE_AND_RETHROW( (code)(acttype)(auths)(data)(expiration)(delay_sec) ) }
+
+   action base_tester::get_action( account_name code, action_name acttype, vector<permission_level> auths,
+                                   const variant_object& data )const { try {
+      const auto& acnt = control->get_account(code);
       auto abi = acnt.get_abi();
       chain::abi_serializer abis(abi);
-      auto a = control->db().get<account_object,by_name>(code).get_abi();
+    //  auto a = control->get_account(code).get_abi();
 
       string action_type_name = abis.get_action_type(acttype);
       FC_ASSERT( action_type_name != string(), "unknown action type ${a}", ("a",acttype) );
@@ -278,16 +363,8 @@ namespace eosio { namespace testing {
       act.name = acttype;
       act.authorization = auths;
       act.data = abis.variant_to_binary(action_type_name, data);
-
-      signed_transaction trx;
-      trx.actions.emplace_back(std::move(act));
-      set_transaction_headers(trx, expiration, delay_sec);
-      for (const auto& auth : auths) {
-         trx.sign(get_private_key(auth.actor, auth.permission.to_string()), chain_id_type());
-      }
-
-      return push_transaction(trx);
-   } FC_CAPTURE_AND_RETHROW( (code)(acttype)(auths)(data)(expiration) ) }
+      return act;
+   } FC_CAPTURE_AND_RETHROW() }
 
    transaction_trace_ptr base_tester::push_reqauth( account_name from, const vector<permission_level>& auths, const vector<private_key_type>& keys ) {
       variant pretty_trx = fc::mutable_variant_object()
@@ -342,11 +419,9 @@ namespace eosio { namespace testing {
         // lets also push a context free action, the multi chain test will then also include a context free action
         ("context_free_actions", fc::variants({
             fc::mutable_variant_object()
-               ("account", name(config::system_account_name))
+               ("account", name(config::null_account_name))
                ("name", "nonce")
-               ("data", fc::mutable_variant_object()
-                  ("value", v)
-               )
+               ("data", fc::raw::pack(v))
             })
          );
 
@@ -501,12 +576,12 @@ namespace eosio { namespace testing {
    }
 
 
-   void base_tester::set_code( account_name account, const char* wast ) try {
-      set_code(account, wast_to_wasm(wast));
+   void base_tester::set_code( account_name account, const char* wast, const private_key_type* signer  ) try {
+      set_code(account, wast_to_wasm(wast), signer);
    } FC_CAPTURE_AND_RETHROW( (account) )
 
 
-   void base_tester::set_code( account_name account, const vector<uint8_t> wasm ) try {
+   void base_tester::set_code( account_name account, const vector<uint8_t> wasm, const private_key_type* signer ) try {
       signed_transaction trx;
       trx.actions.emplace_back( vector<permission_level>{{account,config::active_name}},
                                 setcode{
@@ -517,12 +592,16 @@ namespace eosio { namespace testing {
                                 });
 
       set_transaction_headers(trx);
-      trx.sign( get_private_key( account, "active" ), chain_id_type()  );
+      if( signer ) {
+         trx.sign( *signer, chain_id_type()  );
+      } else {
+         trx.sign( get_private_key( account, "active" ), chain_id_type()  );
+      }
       push_transaction( trx );
    } FC_CAPTURE_AND_RETHROW( (account) )
 
 
-   void base_tester::set_abi( account_name account, const char* abi_json) {
+   void base_tester::set_abi( account_name account, const char* abi_json, const private_key_type* signer ) {
       auto abi = fc::json::from_string(abi_json).template as<abi_def>();
       signed_transaction trx;
       trx.actions.emplace_back( vector<permission_level>{{account,config::active_name}},
@@ -532,7 +611,11 @@ namespace eosio { namespace testing {
                                 });
 
       set_transaction_headers(trx);
-      trx.sign( get_private_key( account, "active" ), chain_id_type()  );
+      if( signer ) {
+         trx.sign( *signer, chain_id_type()  );
+      } else {
+         trx.sign( get_private_key( account, "active" ), chain_id_type()  );
+      }
       push_transaction( trx );
    }
 
@@ -635,6 +718,7 @@ namespace eosio { namespace testing {
          for( int i = 1; i <= a.control->head_block_num(); ++i ) {
             auto block = a.control->fetch_block_by_number(i);
             if( block ) { //&& !b.control->is_known_block(block->id()) ) {
+               b.control->abort_block();
                b.control->push_block(block); //, eosio::chain::validation_steps::created_block);
             }
          }
@@ -646,7 +730,7 @@ namespace eosio { namespace testing {
 
    void base_tester::push_genesis_block() {
       set_code(config::system_account_name, eosio_bios_wast);
-      
+
       set_abi(config::system_account_name, eosio_bios_abi);
       //produce_block();
    }
@@ -673,7 +757,81 @@ namespace eosio { namespace testing {
       return tid;
    }
 
-} }  /// eosio::test
+   bool fc_exception_message_is::operator()( const fc::exception& ex ) {
+      auto message = ex.get_log().at( 0 ).get_message();
+      bool match = (message == expected);
+      if( !match ) {
+         BOOST_TEST_MESSAGE( "LOG: expected: " << expected << ", actual: " << message );
+      }
+      return match;
+   }
+
+   bool fc_exception_message_starts_with::operator()( const fc::exception& ex ) {
+      auto message = ex.get_log().at( 0 ).get_message();
+      bool match = boost::algorithm::starts_with( message, expected );
+      if( !match ) {
+         BOOST_TEST_MESSAGE( "LOG: expected: " << expected << ", actual: " << message );
+      }
+      return match;
+   }
+
+   bool fc_assert_exception_message_is::operator()( const fc::assert_exception& ex ) {
+      auto message = ex.get_log().at( 0 ).get_message();
+      bool match = false;
+      auto pos = message.find( ": " );
+      if( pos != std::string::npos ) {
+         message = message.substr( pos + 2 );
+         match = (message == expected);
+      }
+      if( !match ) {
+         BOOST_TEST_MESSAGE( "LOG: expected: " << expected << ", actual: " << message );
+      }
+      return match;
+   }
+
+   bool fc_assert_exception_message_starts_with::operator()( const fc::assert_exception& ex ) {
+      auto message = ex.get_log().at( 0 ).get_message();
+      bool match = false;
+      auto pos = message.find( ": " );
+      if( pos != std::string::npos ) {
+         message = message.substr( pos + 2 );
+         match = boost::algorithm::starts_with( message, expected );
+      }
+      if( !match ) {
+         BOOST_TEST_MESSAGE( "LOG: expected: " << expected << ", actual: " << message );
+      }
+      return match;
+   }
+
+   bool eosio_assert_message_is::operator()( const fc::assert_exception& ex ) {
+      auto message = ex.get_log().at( 0 ).get_message();
+      bool match = false;
+      auto pos = message.find( ": " );
+      if( pos != std::string::npos ) {
+         message = message.substr( pos + 2 );
+         match = (message == expected);
+      }
+      if( !match ) {
+         BOOST_TEST_MESSAGE( "LOG: expected: " << expected << ", actual: " << message );
+      }
+      return match;
+   }
+
+   bool eosio_assert_message_starts_with::operator()( const fc::assert_exception& ex ) {
+      auto message = ex.get_log().at( 0 ).get_message();
+      bool match = false;
+      auto pos = message.find( ": " );
+      if( pos != std::string::npos ) {
+         message = message.substr( pos + 2 );
+         match = boost::algorithm::starts_with( message, expected );
+      }
+      if( !match ) {
+         BOOST_TEST_MESSAGE( "LOG: expected: " << expected << ", actual: " << message );
+      }
+      return match;
+   }
+
+} }  /// eosio::testing
 
 std::ostream& operator<<( std::ostream& osm, const fc::variant& v ) {
    //fc::json::to_stream( osm, v );

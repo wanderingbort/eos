@@ -31,22 +31,17 @@ namespace eosio { namespace chain {
    using resource_limits::resource_limits_manager;
    using apply_handler = std::function<void(apply_context&)>;
 
+   class fork_database;
+
    class controller {
       public:
          struct config {
-            struct runtime_limits {
-               fc::microseconds     max_push_block_us = fc::microseconds(100000);
-               fc::microseconds     max_push_transaction_us = fc::microseconds(1000'000);
-               fc::microseconds     max_deferred_transactions_us = fc::microseconds(100000);
-            };
-
             path         block_log_dir       =  chain::config::default_block_log_dir;
             path         shared_memory_dir   =  chain::config::default_shared_memory_dir;
             uint64_t     shared_memory_size  =  chain::config::default_shared_memory_size;
             bool         read_only           =  false;
 
             genesis_state                  genesis;
-            runtime_limits                 limits;
             wasm_interface::vm_type        wasm_runtime = chain::config::default_wasm_runtime;
          };
 
@@ -60,42 +55,43 @@ namespace eosio { namespace chain {
           * Starts a new pending block session upon which new transactions can
           * be pushed.
           */
-         void start_block( block_timestamp_type time = block_timestamp_type() );
+         void start_block( block_timestamp_type time = block_timestamp_type(), uint16_t confirm_block_count = 0 );
 
-         void  abort_block();
+         void abort_block();
 
          /**
           *  These transactions were previously pushed by have since been unapplied, recalling push_transaction
-          *  with the transaction_metadata_ptr will remove them from this map whether it fails or succeeds.
+          *  with the transaction_metadata_ptr will remove them from the source of this data IFF it succeeds.
           *
-          *  @return map of the hash of a signed transaction (with context free data) to a transaction metadata
+          *  The caller is responsible for calling drop_unapplied_transaction on a failing transaction that
+          *  they never intend to retry
+          *
+          *  @return vector of transactions which have been unapplied
           */
-         const map<digest_type, transaction_metadata_ptr>&  unapplied_transactions()const;
+         vector<transaction_metadata_ptr> get_unapplied_transactions() const;
+         void drop_unapplied_transaction(const transaction_metadata_ptr& trx);
 
+         /**
+          * These transaction IDs represent transactions available in the head chain state as scheduled
+          * or otherwise generated transactions.
+          *
+          * calling push_scheduled_transaction with these IDs will remove the associated transaction from
+          * the chain state IFF it succeeds or objectively fails
+          *
+          * @return
+          */
+         vector<transaction_id_type> get_scheduled_transactions() const;
 
          /**
           *
           */
-         void push_transaction( const transaction_metadata_ptr& trx = transaction_metadata_ptr(),
-                                fc::time_point deadline = fc::time_point::maximum() );
-
-         bool push_next_unapplied_transaction( fc::time_point deadline = fc::time_point::maximum() );
-
-         transaction_trace_ptr sync_push( const transaction_metadata_ptr& trx, fc::time_point deadline = fc::time_point::now() + fc::milliseconds(30) );
+         transaction_trace_ptr push_transaction( const transaction_metadata_ptr& trx, fc::time_point deadline, uint32_t billed_cpu_time_us = 0 );
 
          /**
           * Attempt to execute a specific transaction in our deferred trx database
           *
           */
-         void push_scheduled_transaction( const transaction_id_type& scheduled,
-                                          fc::time_point deadline = fc::time_point::maximum() );
-
-         /**
-          * Attempt to execute the oldest unexecuted deferred transaction
-          *
-          * @return nullptr if there is nothing pending
-          */
-         bool push_next_scheduled_transaction( fc::time_point deadline = fc::time_point::maximum() );
+         transaction_trace_ptr push_scheduled_transaction( const transaction_id_type& scheduled, fc::time_point deadline, uint32_t billed_cpu_time_us = 0 );
 
          void finalize_block();
          void sign_block( const std::function<signature_type( const digest_type& )>& signer_callback );
@@ -103,7 +99,7 @@ namespace eosio { namespace chain {
          void log_irreversible_blocks();
          void pop_block();
 
-         void push_block( const signed_block_ptr& b );
+         void push_block( const signed_block_ptr& b, bool trust = false /* does the caller trust the block*/ );
 
          /**
           * Call this method when a producer confirmation is received, this might update
@@ -113,6 +109,8 @@ namespace eosio { namespace chain {
 
          chainbase::database& db()const;
 
+         fork_database& fork_db()const;
+
          const account_object&                 get_account( account_name n )const;
          const global_property_object&         get_global_properties()const;
          const dynamic_global_property_object& get_dynamic_global_properties()const;
@@ -121,8 +119,6 @@ namespace eosio { namespace chain {
          resource_limits_manager&              get_mutable_resource_limits_manager();
          const authorization_manager&          get_authorization_manager()const;
          authorization_manager&                get_mutable_authorization_manager();
-
-         fc::microseconds     limit_delay( fc::microseconds delay )const;
 
          uint32_t             head_block_num()const;
          time_point           head_block_time()const;
@@ -143,6 +139,8 @@ namespace eosio { namespace chain {
 
          signed_block_ptr fetch_block_by_number( uint32_t block_num )const;
          signed_block_ptr fetch_block_by_id( block_id_type id )const;
+
+         block_id_type get_block_id_for_num( uint32_t block_num )const;
 
          void validate_referenced_accounts( const transaction& t )const;
          void validate_expiration( const transaction& t )const;
@@ -175,10 +173,14 @@ namespace eosio { namespace chain {
 
 
          optional<abi_serializer> get_abi_serializer( account_name n )const {
-            const auto& a = get_account(n);
-            abi_def abi;
-            if( abi_serializer::to_abi( a.abi, abi ) )
-               return abi_serializer(abi);
+            if( n.good() ) {
+               try {
+                  const auto& a = get_account( n );
+                  abi_def abi;
+                  if( abi_serializer::to_abi( a.abi, abi ))
+                     return abi_serializer( abi );
+               } FC_CAPTURE_AND_LOG((n))
+            }
             return optional<abi_serializer>();
          }
 
@@ -197,10 +199,9 @@ namespace eosio { namespace chain {
 
 } }  /// eosio::chain
 
-FC_REFLECT( eosio::chain::controller::config::runtime_limits, (max_push_block_us)(max_push_transaction_us)(max_deferred_transactions_us) )
 FC_REFLECT( eosio::chain::controller::config,
             (block_log_dir)
             (shared_memory_dir)(shared_memory_size)(read_only)
             (genesis)
-            (limits)(wasm_runtime)
+            (wasm_runtime)
           )

@@ -476,7 +476,7 @@ class apply_context {
       void exec();
       void execute_inline( action&& a );
       void execute_context_free_inline( action&& a );
-      void schedule_deferred_transaction( const uint128_t& sender_id, account_name payer, transaction&& trx );
+      void schedule_deferred_transaction( const uint128_t& sender_id, account_name payer, transaction&& trx, bool replace_existing );
       void cancel_deferred_transaction( const uint128_t& sender_id, account_name sender );
       void cancel_deferred_transaction( const uint128_t& sender_id ) { cancel_deferred_transaction(sender_id, receiver); }
 
@@ -491,7 +491,7 @@ class apply_context {
        * This method will check that @ref account is listed in the message's declared authorizations, and marks the
        * authorization as used. Note that all authorizations on a message must be used, or the message is invalid.
        *
-       * @throws tx_missing_auth If no sufficient permission was found
+       * @throws missing_auth_exception If no sufficient permission was found
        */
       void require_authorization(const account_name& account);
       bool has_authorization(const account_name& account) const;
@@ -512,12 +512,6 @@ class apply_context {
        * delivered to the specified account.
        */
       bool has_recipient(account_name account)const;
-
-      bool                     all_authorizations_used()const;
-      vector<permission_level> unused_authorizations()const;
-
-      void check_auth( const transaction& trx, const vector<permission_level>& perm );
-
 
    /// Console methods:
    public:
@@ -574,8 +568,6 @@ class apply_context {
       vector<account_name> get_active_producers() const;
       bytes  get_packed_transaction();
 
-      void checktime(uint32_t instruction_count);
-
       uint64_t next_global_sequence();
       uint64_t next_recv_sequence( account_name receiver );
       uint64_t next_auth_sequence( account_name actor );
@@ -606,11 +598,7 @@ class apply_context {
       generic_index<index_double_object>                             idx_double;
       generic_index<index_long_double_object>                        idx_long_double;
 
-      vector<action_receipt>                      executed;
       action_trace                                trace;
-
-      uint64_t                                    cpu_usage = 0;
-      uint64_t                                    total_cpu_usage = 0;
 
    private:
 

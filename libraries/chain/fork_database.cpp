@@ -32,7 +32,7 @@ namespace eosio { namespace chain {
          >,
          ordered_non_unique< tag<by_lib_block_num>,
             composite_key< block_header_state,
-                member<block_header_state,uint32_t,&block_header_state::dpos_last_irreversible_blocknum>,
+                member<block_header_state,uint32_t,&block_header_state::dpos_irreversible_blocknum>,
                 member<block_header_state,uint32_t,&block_header_state::bft_irreversible_blocknum>,
                 member<block_header_state,uint32_t,&block_header_state::block_num>
             >,
@@ -94,11 +94,11 @@ namespace eosio { namespace chain {
       idump((states.size()));
 
 
-      /// we don't normally indicate the head block as irreversible 
+      /// we don't normally indicate the head block as irreversible
       /// we cannot normally prune the lib if it is the head block because
       /// the next block needs to build off of the head block. We are exiting
       /// now so we can prune this block as irreversible before exiting.
-      auto lib    = my->head->dpos_last_irreversible_blocknum;
+      auto lib    = my->head->dpos_irreversible_blocknum;
       auto oldest = *my->index.get<by_block_num>().begin();
       if( oldest->block_num <= lib ) {
          prune( oldest );
@@ -131,7 +131,7 @@ namespace eosio { namespace chain {
 
       my->head = *my->index.get<by_lib_block_num>().begin();
 
-      auto lib    = my->head->dpos_last_irreversible_blocknum;
+      auto lib    = my->head->dpos_irreversible_blocknum;
       auto oldest = *my->index.get<by_block_num>().begin();
 
       if( oldest->block_num < lib ) {
@@ -141,7 +141,7 @@ namespace eosio { namespace chain {
       return n;
    }
 
-   block_state_ptr fork_database::add( signed_block_ptr b ) {
+   block_state_ptr fork_database::add( signed_block_ptr b, bool trust ) {
       FC_ASSERT( b, "attempt to add null block" );
       FC_ASSERT( my->head, "no head block set" );
 
@@ -152,7 +152,7 @@ namespace eosio { namespace chain {
       auto prior = by_id_idx.find( b->previous );
       FC_ASSERT( prior != by_id_idx.end(), "unlinkable block", ("id", b->id())("previous", b->previous) );
 
-      auto result = std::make_shared<block_state>( **prior, move(b) );
+      auto result = std::make_shared<block_state>( **prior, move(b), trust );
       FC_ASSERT( result );
       return add(result);
    }
@@ -263,7 +263,8 @@ namespace eosio { namespace chain {
       while( nitr != numidx.end() && (*nitr)->block_num == num ) {
          auto itr_to_remove = nitr;
          ++nitr;
-         remove( (*itr_to_remove)->id );
+         auto id = (*itr_to_remove)->id;
+         remove( id );
       }
    }
 

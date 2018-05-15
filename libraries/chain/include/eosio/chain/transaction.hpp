@@ -32,7 +32,7 @@ namespace eosio { namespace chain {
       uint16_t               ref_block_num       = 0U; ///< specifies a block num in the last 2^16 blocks.
       uint32_t               ref_block_prefix    = 0UL; ///< specifies the lower 32 bits of the blockid at get_ref_blocknum
       fc::unsigned_int       max_net_usage_words = 0UL; /// upper limit on total network bandwidth (in 8 byte words) billed for this transaction
-      fc::unsigned_int       max_kcpu_usage      = 0UL; /// upper limit on the total number of kilo CPU usage units billed for this transaction
+      uint8_t                max_cpu_usage_ms    = 0; /// upper limit on the total CPU time billed for this transaction
       fc::unsigned_int       delay_sec           = 0UL; /// number of seconds to delay this transaction for during which it may be canceled.
 
       /**
@@ -54,6 +54,7 @@ namespace eosio { namespace chain {
    struct transaction : public transaction_header {
       vector<action>         context_free_actions;
       vector<action>         actions;
+      extensions_type        transaction_extensions;
 
       transaction_id_type        id()const;
       digest_type                sig_digest( const chain_id_type& chain_id, const vector<bytes>& cfd = vector<bytes>() )const;
@@ -118,7 +119,8 @@ namespace eosio { namespace chain {
          set_transaction(t, std::move(t.context_free_data), _compression);
       }
 
-      uint32_t get_billable_size()const;
+      uint32_t get_unprunable_size()const;
+      uint32_t get_prunable_size()const;
 
       digest_type packed_digest()const;
 
@@ -127,6 +129,7 @@ namespace eosio { namespace chain {
       bytes                                   packed_context_free_data;
       bytes                                   packed_trx;
 
+      time_point_sec     expiration()const;
       transaction_id_type id()const;
       bytes              get_raw_transaction()const;
       vector<bytes>      get_context_free_data()const;
@@ -134,8 +137,13 @@ namespace eosio { namespace chain {
       signed_transaction get_signed_transaction()const;
       void               set_transaction(const transaction& t, compression_type _compression = none);
       void               set_transaction(const transaction& t, const vector<bytes>& cfd, compression_type _compression = none);
+
+   private:
+      mutable optional<transaction>           unpacked_trx; // <-- intermediate buffer used to retrieve values
+      void local_unpack()const;
    };
 
+   using packed_transaction_ptr = std::shared_ptr<packed_transaction>;
 
    /**
     *  When a transaction is generated it can be scheduled to occur
@@ -179,8 +187,8 @@ namespace eosio { namespace chain {
 } } /// namespace eosio::chain
 
 FC_REFLECT( eosio::chain::transaction_header, (expiration)(ref_block_num)(ref_block_prefix)
-                                              (max_net_usage_words)(max_kcpu_usage)(delay_sec) )
-FC_REFLECT_DERIVED( eosio::chain::transaction, (eosio::chain::transaction_header), (context_free_actions)(actions) )
+                                              (max_net_usage_words)(max_cpu_usage_ms)(delay_sec) )
+FC_REFLECT_DERIVED( eosio::chain::transaction, (eosio::chain::transaction_header), (context_free_actions)(actions)(transaction_extensions) )
 FC_REFLECT_DERIVED( eosio::chain::signed_transaction, (eosio::chain::transaction), (signatures)(context_free_data) )
 FC_REFLECT_ENUM( eosio::chain::packed_transaction::compression_type, (none)(zlib))
 FC_REFLECT( eosio::chain::packed_transaction, (signatures)(compression)(packed_context_free_data)(packed_trx) )

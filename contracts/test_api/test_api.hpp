@@ -8,7 +8,7 @@
 
 
 namespace eosio {
-   class deferred_transaction;
+   class transaction;
 }
 
 
@@ -31,7 +31,7 @@ namespace eosio {
 
 #define WASM_TEST_ERROR_HANDLER(CALLED_CLASS_STR, CALLED_METHOD_STR, HANDLER_CLASS, HANDLER_METHOD) \
 if( error_action == WASM_TEST_ACTION(CALLED_CLASS_STR, CALLED_METHOD_STR) ) { \
-   HANDLER_CLASS::HANDLER_METHOD(error_dtrx); \
+   HANDLER_CLASS::HANDLER_METHOD(error_trx); \
    return; \
 }
 
@@ -87,6 +87,8 @@ struct test_db {
    static void idx_double_nan_create_fail(uint64_t receiver, uint64_t code, uint64_t action);
    static void idx_double_nan_modify_fail(uint64_t receiver, uint64_t code, uint64_t action);
    static void idx_double_nan_lookup_fail(uint64_t receiver, uint64_t code, uint64_t action);
+
+   static void misaligned_secondary_key256_tests(uint64_t, uint64_t, uint64_t);
 };
 
 struct test_multi_index {
@@ -159,19 +161,21 @@ struct test_transaction {
   static void send_transaction(uint64_t receiver, uint64_t code, uint64_t action);
   static void send_transaction_empty(uint64_t receiver, uint64_t code, uint64_t action);
   static void send_transaction_trigger_error_handler(uint64_t receiver, uint64_t code, uint64_t action);
-  static void assert_false_error_handler(const eosio::deferred_transaction&);
+  static void assert_false_error_handler(const eosio::transaction&);
   static void send_transaction_max();
   static void send_transaction_large(uint64_t receiver, uint64_t code, uint64_t action);
-  static void send_transaction_expiring_late(uint64_t receiver, uint64_t code, uint64_t action);
   static void send_action_sender(uint64_t receiver, uint64_t code, uint64_t action);
   static void deferred_print();
   static void send_deferred_transaction(uint64_t receiver, uint64_t code, uint64_t action);
-  static void send_deferred_tx_given_payer();
+  static void send_deferred_transaction_replace(uint64_t receiver, uint64_t code, uint64_t action);
+  static void send_deferred_tx_with_dtt_action();
   static void cancel_deferred_transaction();
   static void send_cf_action();
   static void send_cf_action_fail();
-  static void read_inline_action();
-  static void read_inline_cf_action();
+  static void stateful_api();
+  static void context_free_api();
+  static void new_feature();
+  static void active_new_feature();
 };
 
 struct test_chain {
@@ -251,6 +255,8 @@ struct test_softfloat {
 
 struct test_permission {
   static void check_authorization(uint64_t receiver, uint64_t code, uint64_t action);
+  static void test_permission_last_used(uint64_t receiver, uint64_t code, uint64_t action);
+  static void test_account_creation_time(uint64_t receiver, uint64_t code, uint64_t action);
 };
 
 struct test_datastream {

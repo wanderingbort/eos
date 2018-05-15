@@ -63,11 +63,14 @@ namespace eosio { namespace chain {
 
       //asset.hpp
       built_in_types.emplace("asset",                     pack_unpack<asset>());
+      built_in_types.emplace("extended_asset",            pack_unpack<extended_asset>());
 
       //native.hpp
       built_in_types.emplace("string",                    pack_unpack<string>());
       built_in_types.emplace("clause_pair",               pack_unpack<clause_pair>());
-      built_in_types.emplace("time",                      pack_unpack<fc::time_point_sec>());
+      built_in_types.emplace("time_point",                pack_unpack<fc::time_point>());
+      built_in_types.emplace("time_point_sec",            pack_unpack<fc::time_point_sec>());
+      built_in_types.emplace("block_timestamp_type",      pack_unpack<block_timestamp_type>());
       built_in_types.emplace("signature",                 pack_unpack<signature_type>());
       built_in_types.emplace("checksum160",               pack_unpack<checksum160_type>());
       built_in_types.emplace("checksum256",               pack_unpack<checksum256_type>());
@@ -81,6 +84,7 @@ namespace eosio { namespace chain {
       built_in_types.emplace("uint128",                   pack_unpack<boost::multiprecision::uint128_t>());
       built_in_types.emplace("uint256",                   pack_unpack<boost::multiprecision::uint256_t>());
       built_in_types.emplace("varuint32",                 pack_unpack<fc::unsigned_int>());
+      built_in_types.emplace("bool",                      pack_unpack<uint8_t>());
       built_in_types.emplace("int8",                      pack_unpack<int8_t>());
       built_in_types.emplace("int16",                     pack_unpack<int16_t>());
       built_in_types.emplace("int32",                     pack_unpack<int32_t>());

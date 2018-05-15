@@ -232,15 +232,13 @@ struct faucet_testnet_plugin_impl {
       auto recovery_auth = chain::authority{1, {}, {{{_create_account_name, "active"}, 1}}};
 
       trx.actions.emplace_back(vector<chain::permission_level>{{_create_account_name,"active"}},
-                               newaccount{_create_account_name, new_account_name, owner_auth, active_auth, recovery_auth});
+                               newaccount{_create_account_name, new_account_name, owner_auth, active_auth});
 
       trx.expiration = cc.head_block_time() + fc::seconds(30);
       trx.set_reference_block(cc.head_block_id());
       trx.sign(_create_account_private_key, chainid);
 
       try {
-         if( !cc.pending_block_state() )
-            cc.start_block();
          cc.push_transaction( std::make_shared<transaction_metadata>(trx) );
       } catch (const account_name_exists_exception& ) {
          // another transaction ended up adding the account, so look for alternates

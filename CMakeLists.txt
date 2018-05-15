@@ -18,7 +18,7 @@ set( CMAKE_CXX_STANDARD 14 )
 set( CMAKE_CXX_EXTENSIONS ON )
 set( CXX_STANDARD_REQUIRED ON)
 
-set(VERSION_MAJOR 3)
+set(VERSION_MAJOR 4)
 set(VERSION_MINOR 0)
 set(VERSION_PATCH 0)
 
@@ -187,8 +187,8 @@ add_subdirectory( contracts )
 add_subdirectory( plugins )
 add_subdirectory( programs )
 add_subdirectory( scripts )
-add_subdirectory( tests )
 add_subdirectory( unittests )
+add_subdirectory( tests )
 add_subdirectory( tools )
 add_subdirectory( debian )
 
