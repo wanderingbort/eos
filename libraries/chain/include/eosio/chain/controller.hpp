@@ -105,7 +105,7 @@ namespace eosio { namespace chain {
           * Call this method when a producer confirmation is received, this might update
           * the last bft irreversible block and/or cause a switch of forks
           */
-         void push_confirmation( const header_confirmation& c );
+         void push_confirmation( const header_confirmation_ptr& c );
 
          chainbase::database& db()const;
 

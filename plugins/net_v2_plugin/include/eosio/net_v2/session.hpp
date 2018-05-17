@@ -7,10 +7,11 @@
 #include <eosio/net_v2/transaction_cache.hpp>
 #include <eosio/net_v2/block_cache.hpp>
 
+#include <boost/asio/io_service.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 #include <eosio/net_v2/state_machine.hpp>
-#include <eosio/net_v2/connection_manager.hpp>
+#include <eosio/net_v2/connection.hpp>
 #include <eosio/net_v2/protocol.hpp>
 
 using boost::asio::steady_timer;
@@ -20,6 +21,7 @@ using namespace eosio::net_v2::state_machine;
 
 
 namespace eosio { namespace net_v2 {
+   using boost::asio::io_service;
 
    class session;
    using session_ptr = std::shared_ptr<session>;
@@ -123,8 +125,8 @@ namespace eosio { namespace net_v2 {
          struct peer_behind_state {
             block_id_type last_block_sent;
 
-            void enter(const desynced_state& parent, base::connected_state& connected, session& peer)
-            void on(const sent_block_event& event, const desynced_state& parent, base::connected_state& connected, session& peer);
+            void enter(const desynced_state& parent, base::connected_state& connected, session& peer);
+            void on(const sent_block_event& event, const desynced_state& parent, base::connected_state& connected, const session& peer);
 
             void send_next_best_block(session& peer);
          };
@@ -182,7 +184,7 @@ namespace eosio { namespace net_v2 {
          optional<steady_timer> delay_timer;
       };
 
-      using state_machine_type = machine<idle_state, subscribed_state>;
+      using state_machine_type = machine<idle_state, subscribed_state, delay_state>;
    }
 
    namespace base {

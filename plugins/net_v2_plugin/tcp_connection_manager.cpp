@@ -2,7 +2,7 @@
  *  @file
  *  @copyright defined in eos/LICENSE.txt
  */
-#include <eosio/net_v2/connection_manager.hpp>
+#include <eosio/net_v2/tcp_connection_manager.hpp>
 #include <boost/asio/buffers_iterator.hpp>
 #include <boost/asio/write.hpp>
 #include <regex>
@@ -85,7 +85,7 @@ namespace eosio { namespace net_v2 {
       }
    };
 
-   void connection::try_connect(const connection_ptr& c, tcp::resolver::iterator endpoint_itr) {
+   void tcp_connection::try_connect(const connection_ptr& c, tcp::resolver::iterator endpoint_itr) {
       auto next_endpoint = *endpoint_itr;
       ++endpoint_itr;
 
@@ -117,14 +117,14 @@ namespace eosio { namespace net_v2 {
       });
    }
 
-   void connection::open( ) {
+   void tcp_connection::open( ) {
       reconnect = true;
       if (!socket && !reconnect_timer) {
          initiate();
       }
    }
 
-   void connection::close() {
+   void tcp_connection::close() {
       reconnect = false;
       if (socket) {
          socket->close();
@@ -133,7 +133,7 @@ namespace eosio { namespace net_v2 {
       }
    }
 
-   void connection::initiate() {
+   void tcp_connection::initiate() {
       std::smatch url_match;
       if (!std::regex_match(endpoint, url_match, host_port_regex)) {
          on_error(FC_MAKE_EXCEPTION_PTR(net_v2_connection_exception, "Invalid peer address. must be \"host:port\": ${p}", ("p",endpoint)));
@@ -159,7 +159,7 @@ namespace eosio { namespace net_v2 {
       });
    }
 
-   void connection::set_retry() {
+   void tcp_connection::set_retry() {
       if (reconnect && !reconnect_timer) {
          auto delay_s = std::min((0x1 << std::min(retry_attempts++, 8)) * mgr.base_reconnect_delay_s, mgr.max_reconnect_delay_s);
          reconnect_timer.emplace(mgr.ios, std::chrono::seconds(delay_s));
@@ -175,12 +175,12 @@ namespace eosio { namespace net_v2 {
       }
    }
 
-   void connection::handle_error() {
+   void tcp_connection::handle_error() {
       on_disconnected();
       set_retry();
    }
 
-   void connection::write_next(const connection_ptr& c) {
+   void tcp_connection::write_next(const connection_ptr& c) {
       if (c->queued_writes.empty() || !c->socket) {
          return;
       }
@@ -207,12 +207,12 @@ namespace eosio { namespace net_v2 {
             const auto& entry = c->queued_writes.front();
             std::get<1>(entry)();
             c->queued_writes.pop_front();
-            connection::write_next(c);
+            tcp_connection::write_next(c);
          }
       });
    }
 
-   void connection::read_next(const connection_ptr& c) {
+   void tcp_connection::read_next(const connection_ptr& c) {
       if (!c->socket) {
          return;
       }
@@ -245,7 +245,7 @@ namespace eosio { namespace net_v2 {
       });
    }
 
-   bool connection::read_message() {
+   bool tcp_connection::read_message() {
       const size_t message_header_size = sizeof(uint32_t);
 
       uint32_t bytes_in_buffer = queued_reads.bytes_to_read();
@@ -284,11 +284,11 @@ namespace eosio { namespace net_v2 {
       return true;
    }
 
-   connection_ptr connection_manager::get( const string& host ){
-      return connection_ptr(new connection( host, *this ));
+   tcp_connection_ptr tcp_connection_manager::get( const string& host ){
+      return tcp_connection_ptr(new tcp_connection( host, *this ));
    }
 
-   void connection_manager::listen( string endpoint )
+   void tcp_connection_manager::listen( string endpoint )
    {
       std::smatch url_match;
       if (!std::regex_match(endpoint, url_match, host_port_regex)) {
@@ -304,7 +304,7 @@ namespace eosio { namespace net_v2 {
       accept_next();
    }
 
-   void connection_manager::accept_next() {
+   void tcp_connection_manager::accept_next() {
       auto socket = std::make_unique<tcp::socket>(ios);
       acceptor->async_accept( *socket, [socket = std::move(socket),this]( boost::system::error_code ec ) mutable {
          if( !ec ) {
@@ -317,8 +317,8 @@ namespace eosio { namespace net_v2 {
 
             host += ":" + std::to_string(endpoint.port());
 
-            auto conn = connection_ptr(new connection(std::move(socket), host, *this));
-            connection::read_next(conn);
+            auto conn = tcp_connection_ptr(new tcp_connection(std::move(socket), host, *this));
+            tcp_connection::read_next(conn);
             on_incoming_connection(conn);
 
             accept_next();

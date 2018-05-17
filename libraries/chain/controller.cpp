@@ -756,9 +756,9 @@ struct controller_impl {
       } FC_LOG_AND_RETHROW( )
    }
 
-   void push_confirmation( const header_confirmation& c ) {
+   void push_confirmation( const header_confirmation_ptr& c ) {
       FC_ASSERT(!pending, "it is not valid to push a confirmation when there is a pending block");
-      fork_db.add( c );
+      fork_db.add( *c );
       emit( self.accepted_confirmation, c );
       maybe_switch_forks();
    }
@@ -1063,7 +1063,7 @@ void controller::push_block( const signed_block_ptr& b, bool trust ) {
    log_irreversible_blocks();
 }
 
-void controller::push_confirmation( const header_confirmation& c ) {
+void controller::push_confirmation( const header_confirmation_ptr& c ) {
    my->push_confirmation( c );
 }
 

@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include <chain/net_v2/types.hpp>
+#include <eosio/net_v2/types.hpp>
 
 #include <boost/multi_index_container.hpp>
 #include <boost/multi_index/member.hpp>

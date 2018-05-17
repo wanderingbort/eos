@@ -5,7 +5,7 @@
 #include <eosio/chain/types.hpp>
 #include <eosio/net_v2/plugin.hpp>
 #include <eosio/net_v2/protocol.hpp>
-#include <eosio/net_v2/connection_manager.hpp>
+#include <eosio/net_v2/tcp_connection_manager.hpp>
 #include <eosio/net_v2/session.hpp>
 #include <eosio/chain/plugin_interface.hpp>
 
@@ -41,8 +41,8 @@ namespace eosio { namespace net_v2 {
    public:
       explicit plugin_impl(io_service& ios)
       : connections(ios)
-      ,incoming_block_channel(app().get_channel<channels::incoming_block>())
-      ,incoming_transaction_channel(app().get_channel<channels::incoming_transaction>())
+      ,incoming_block_channel(app().get_channel<incoming::channels::block>())
+      ,incoming_transaction_channel(app().get_channel<incoming::channels::transaction>())
       {}
 
       ~plugin_impl() {
@@ -56,15 +56,15 @@ namespace eosio { namespace net_v2 {
       void disconnect(const string& endpoint);
       void start_listening();
 
-      const session_ptr&  create_session( const connection_ptr& conn );
-      void post( const session_ptr& session, const net_message_ptr& msg, const lazy_data_buffer_ptr& lazy_buffer);
+      const session_ptr&  create_session( const tcp_connection_ptr& conn );
+      void post( const session_ptr& session, const net_message_ptr& msg, const lazy_serialized_net_message_ptr& lazy_buffer);
       void on_accepted_block_header(const block_state_ptr& trace);
       void on_accepted_block(const block_state_ptr& state);
 
       int16_t                       network_version = 0;
       shared_state                  shared;
 
-      connection_manager            connections;
+      tcp_connection_manager        connections;
       std::vector<session_ptr>      sessions;
 
       string                        listen_endpoint;
@@ -73,8 +73,8 @@ namespace eosio { namespace net_v2 {
       optional<channels::accepted_block_header::channel_type::handle> accepted_block_header_subscription;
       optional<channels::accepted_block::channel_type::handle>        accepted_block_subscription;
 
-      channels::incoming_block::channel_type&                         incoming_block_channel;
-      channels::incoming_transaction::channel_type&                   incoming_transaction_channel;
+      incoming::channels::block::channel_type&                        incoming_block_channel;
+      incoming::channels::transaction::channel_type&                  incoming_transaction_channel;
 
       fc::logger                    logger;
    };
@@ -192,7 +192,7 @@ namespace eosio { namespace net_v2 {
    void plugin_impl::disconnect(const string& endpoint) {
       auto iter = sessions.begin();
       while(iter != sessions.end()) {
-         if ((*iter)->conn->endpoint == endpoint) {
+         if (std::static_pointer_cast<tcp_connection>((*iter)->conn)->endpoint == endpoint) {
             break;
          }
       }
@@ -210,15 +210,15 @@ namespace eosio { namespace net_v2 {
 
    void plugin_impl::start_listening() {
       connections.listen(listen_endpoint);
-      connections.on_incoming_connection.connect([this]( const connection_ptr& conn ){
+      connections.on_incoming_connection.connect([this]( const tcp_connection_ptr& conn ){
          auto session = create_session(conn);
          // we are already connected, so fire off the event
          session->post(base::connection_established_event{});
       });
    }
 
-   const session_ptr& plugin_impl::create_session(const connection_ptr& conn) {
-      sessions.emplace_back(new session(app().get_io_service(), conn, shared));
+   const session_ptr& plugin_impl::create_session(const tcp_connection_ptr& conn) {
+      sessions.emplace_back(new session(app().get_io_service(), std::static_pointer_cast<connection>(conn), shared));
       const auto& session = sessions.back();
       session_wptr weak_session = session;
 
@@ -234,7 +234,7 @@ namespace eosio { namespace net_v2 {
          }
       });
 
-      conn->on_message.connect([weak_session, this](const net_message_ptr& msg, const lazy_data_buffer_ptr& lazy_buffer) {
+      conn->on_message.connect([weak_session, this](const net_message_ptr& msg, const lazy_serialized_net_message_ptr& lazy_buffer) {
          if (!weak_session.expired()) {
             post(weak_session.lock(), msg, lazy_buffer);
          }
@@ -243,7 +243,7 @@ namespace eosio { namespace net_v2 {
       conn->on_error.connect([weak_session, this](const fc::exception_ptr& e) {
          if (!weak_session.expired()) {
             auto session = weak_session.lock();
-            fc_elog(logger, "failed to connect to ${endpoint}", ("endpoint", session->conn->endpoint));
+            fc_elog(logger, "failed to connect to ${endpoint}", ("endpoint", std::static_pointer_cast<tcp_connection>(session->conn)->endpoint));
             fc_dlog(logger, "${details}", ("details", e->to_detail_string()));
          }
       });
@@ -264,7 +264,7 @@ namespace eosio { namespace net_v2 {
       const session_ptr& session;
    };
 
-   void plugin_impl::post( const session_ptr& session, const net_message_ptr& msg, const lazy_data_buffer_ptr& lazy_buffer) {
+   void plugin_impl::post( const session_ptr& session, const net_message_ptr& msg, const lazy_serialized_net_message_ptr& lazy_buffer) {
       // maybe do something with this message and the greater chain?
       if (msg->contains<signed_block>()) {
 
@@ -274,7 +274,7 @@ namespace eosio { namespace net_v2 {
             .id = block_ptr->id(),
             .prev = block_ptr->previous,
             .blk = block_ptr,
-            .raw = (data_buffer_ptr)lazy_buffer,
+            .raw = lazy_buffer.get(),
             .session_acks = dynamic_bitset()
          };
          auto res = shared.blk_cache.insert(new_obj);
@@ -300,7 +300,7 @@ namespace eosio { namespace net_v2 {
             .id = unpacked_trx.id(),
             .expiration = unpacked_trx.expiration,
             .trx = trx_ptr,
-            .raw = (data_buffer_ptr)lazy_buffer,
+            .raw = lazy_buffer.get(),
             .session_acks = dynamic_bitset()
          };
 
@@ -366,7 +366,7 @@ namespace eosio { namespace net_v2 {
    }
 
    void plugin_impl::on_accepted_block(const block_state_ptr& state) {
-      shared.local_chain.last_irreversible_block_number = state->dpos_last_irreversible_blocknum;
+      shared.local_chain.last_irreversible_block_number = state->dpos_irreversible_blocknum;
       shared.local_chain.head_block_id = state->block->id();
    }
 } }

@@ -6,6 +6,7 @@ namespace eosio { namespace net_v2 {
 static fc::logger logger;
 
 using namespace eosio::net_v2::state_machine;
+using boost::system::error_code;
 
 namespace base {
    next_states<handshaking_state>
