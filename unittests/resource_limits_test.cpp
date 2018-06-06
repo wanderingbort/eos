@@ -330,6 +330,50 @@ BOOST_AUTO_TEST_SUITE(resource_limits_test)
 
 
 
-   } FC_LOG_AND_RETHROW() 
+   } FC_LOG_AND_RETHROW()
+
+   BOOST_FIXTURE_TEST_CASE(saturator_test, resource_limits_fixture) try {
+
+      initialize_account( N(user) );
+      initialize_account( N(everyone) );
+      set_account_limits( N(user), 0, 0, 1ll );
+      set_account_limits( N(everyone), 0, 0, 9999999ll );
+      process_account_limit_updates();
+
+      int64_t iterations = 0;
+      uint64_t usage = 0;
+
+      static const uint64_t blocks_in_one_day = 24 * 60 * 60 * 2;
+
+      while( iterations < blocks_in_one_day * 2) {
+         auto s = start_session();
+         add_transaction_usage({N(user)}, 0, 0, iterations);
+         auto current_usage = std::min<uint64_t>(get_account_cpu_limit(N(user)), config::default_max_block_cpu_usage);
+
+         if(current_usage >= config::default_min_transaction_cpu_usage) {
+            s.squash();
+            auto decayed = get_account_cpu_internal_value(N(user));
+            add_transaction_usage({N(user)}, current_usage, 0, iterations);
+            add_transaction_usage({N(everyone)}, config::default_max_block_cpu_usage - current_usage, 0, iterations);
+            usage += current_usage;
+            std::cout << iterations << ": " << current_usage << "(" << (double)decayed/1000000.0 << "->" << (double)get_account_cpu_internal_value(N(user))/1000000.0 << ")" <<std::endl;
+
+         } else {
+            s.undo();
+            add_transaction_usage({N(everyone)}, config::default_max_block_cpu_usage, 0, iterations);
+         }
+
+         process_block_usage(iterations++);
+
+      }
+
+      auto cpu_avail = (iterations) * config::default_max_block_cpu_usage;
+      double pct_usage = (double)usage / (double)cpu_avail;
+      double expected_usage = 0.0000001;
+      double multiplier =  pct_usage / expected_usage;
+
+      wdump(((double)usage)((double)cpu_avail)(pct_usage)(multiplier));
+
+   } FC_LOG_AND_RETHROW()
 
 BOOST_AUTO_TEST_SUITE_END()

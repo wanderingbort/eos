@@ -67,6 +67,8 @@ namespace eosio { namespace chain { namespace resource_limits {
          int64_t get_account_cpu_limit( const account_name& name ) const;
          int64_t get_account_net_limit( const account_name& name ) const;
 
+         int64_t get_account_cpu_internal_value( const account_name& name ) const;
+
          account_resource_limit get_account_cpu_limit_ex( const account_name& name ) const;
          account_resource_limit get_account_net_limit_ex( const account_name& name ) const;
 
