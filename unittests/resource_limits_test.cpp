@@ -141,7 +141,8 @@ BOOST_AUTO_TEST_SUITE(resource_limits_test)
 
 
    BOOST_FIXTURE_TEST_CASE(weighted_capacity_cpu, resource_limits_fixture) try {
-      const vector<int64_t> weights = { 234, 511, 672, 800, 1213 };
+      const vector<int64_t> weights = { 234 };
+      const int64_t everyone_else = 1'213'000;
 
       for (int64_t idx = 0; idx < weights.size(); idx++) {
          const account_name account(idx + 100);
@@ -149,12 +150,19 @@ BOOST_AUTO_TEST_SUITE(resource_limits_test)
          set_account_limits(account, -1, -1, weights.at(idx));
       }
 
+      initialize_account(N(everyone));
+      set_account_limits(N(everyone), -1, -1, everyone_else);
+
       process_account_limit_updates();
 
       for( uint32_t period = 0; period < 100; period++) {
          for (int64_t idx = 0; idx < weights.size(); idx++) {
             const account_name account(idx + 100);
             auto calculated_limit = get_account_cpu_limit(account, period);
+            if (calculated_limit >= config::default_max_block_cpu_usage) {
+               add_transaction_usage({account}, config::default_max_block_cpu_usage, 0, period);
+               continue;
+            } 
 
             {  // use the calculated limit + 1, should throw ... roll it back
                auto s = start_session();
@@ -174,7 +182,8 @@ BOOST_AUTO_TEST_SUITE(resource_limits_test)
     * create 5 accounts with different weights, verify that the capacities are as expected and that usage properly enforces them
     */
    BOOST_FIXTURE_TEST_CASE(weighted_capacity_net, resource_limits_fixture) try {
-      const vector<int64_t> weights = { 234, 511, 672, 800, 1213 };
+      const vector<int64_t> weights = { 234 };
+      const int64_t everyone_else = 1'213'000;
 
       for (int64_t idx = 0; idx < weights.size(); idx++) {
          const account_name account(idx + 100);
@@ -182,12 +191,20 @@ BOOST_AUTO_TEST_SUITE(resource_limits_test)
          set_account_limits(account, -1, weights.at(idx), -1 );
       }
 
+      initialize_account(N(everyone));
+      set_account_limits(N(everyone), -1, everyone_else, -1 );
+
       process_account_limit_updates();
 
       for( uint32_t period = 0; period < 100; period++) {
          for (int64_t idx = 0; idx < weights.size(); idx++) {
             const account_name account(idx + 100);
             auto calculated_limit = get_account_net_limit(account, period);
+
+            if (calculated_limit >= config::default_max_block_net_usage) {
+               add_transaction_usage({account}, 0, config::default_max_block_net_usage, period);
+               continue;
+            }
 
             {  // use the calculated limit + 1, should throw ... roll it back
                auto s = start_session();
