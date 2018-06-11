@@ -208,7 +208,7 @@ BOOST_AUTO_TEST_SUITE(resource_limits_test)
 
             {  // use the calculated limit + 1, should throw ... roll it back
                auto s = start_session();
-               BOOST_REQUIRE_THROW(add_transaction_usage({account}, 0, calculated_limit + 1, period), tx_cpu_usage_exceeded);
+               BOOST_REQUIRE_THROW(add_transaction_usage({account}, 0, calculated_limit + 1, period), tx_net_usage_exceeded);
                s.undo();
             }
 
